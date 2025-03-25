@@ -1,14 +1,8 @@
 # Project
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+The repo contains reusable Github Actions for constructing pull request pipelines for the ONNX Runtime project's repos. It is created for avoiding checking compiled javascript code to these repos.
 
-As the maintainer of this project, please make a few updates:
-
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+Usually one git repo should only contain one action, but this repo has multiple. 
 
 ## Contributing
 
