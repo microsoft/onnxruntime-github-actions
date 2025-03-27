@@ -113,7 +113,7 @@ Before making a release, please use the following steps to do an integration tes
 
 **Steps that should be done in the main ONNX Runtime repo**
 1.  Create a dev branch
-1.  Modify the `uses:` line for the action you want to test to point to the specific branch or commit SHA in *this* actions repository:
+2.  Modify the `uses:` line for the action you want to test to point to the specific branch or commit SHA in *this* actions repository:
 
     ```yaml
     steps:
@@ -127,7 +127,6 @@ Before making a release, please use the following steps to do an integration tes
           # ... inputs ...
     ```
     *(Replace `<full_commit_sha_from_actions_repo>` with the actual SHA obtained in step 6 above).*
-
 
 ## Contributing
 
