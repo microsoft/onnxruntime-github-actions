@@ -9,18 +9,17 @@ const fs = require('fs/promises'); // Import file system promises
 const KNOWN_EPS = new Set([
   'acl', 'armnn', 'azure', 'cann', 'coreml', 'cuda', 'dml', 'dnnl',
   'migraphx', 'nnapi', 'openvino', 'qnn', 'rknpu', 'rocm', 'snpe',
-  'tensorrt', 'vitisai', 'vsinpu', 'webgpu', 'webnn', 'xnnpack'
+  'tensorrt', 'vitisai', 'vsinpu', 'webgpu', 'webnn', 'xnnpack',
 ]);
 // Create a sorted list string for error messages
 const knownEpsString = Array.from(KNOWN_EPS).sort().join(', ');
-
 
 /**
  * Checks if a path exists on the host filesystem.
  * @param {string} filePath The path to check.
  * @returns {Promise<boolean>} True if the path exists, false otherwise.
  */
-async function checkPathExists(filePath) {
+async function checkPathExists (filePath) {
   try {
     await fs.stat(filePath);
     core.info(`Host path check: Found '${filePath}'.`);
@@ -36,7 +35,7 @@ async function checkPathExists(filePath) {
   }
 }
 
-async function checkGpu() {
+async function checkGpu () {
   let hasGpu = false;
   try {
     const options = { ignoreReturnCode: true, silent: true };
@@ -54,8 +53,7 @@ async function checkGpu() {
   return hasGpu;
 }
 
-
-async function run() {
+async function run () {
   try {
     // --- Get All Inputs ---
     const dockerImage = core.getInput('docker_image', { required: true });
@@ -86,19 +84,19 @@ async function run() {
     const epFlags = [];
     const requestedEps = epInputString.toLowerCase().split(' ').filter(ep => ep.trim());
     if (requestedEps.length > 0) {
-        core.info(`Requested Execution Providers: ${requestedEps.join(', ')}`);
-        for (const ep of requestedEps) {
-            if (KNOWN_EPS.has(ep)) {
-              const flag = `--use_${ep}`;
-              core.info(`  Adding build flag: ${flag}`);
-              epFlags.push(flag);
-            } else {
-                // --- Fail on unknown EP ---
-                core.setFailed(`Unknown execution provider requested: '${ep}'. Allowed values are: ${knownEpsString}`);
-                return; // Stop processing immediately
-                // --- End Fail ---
-            }
+      core.info(`Requested Execution Providers: ${requestedEps.join(', ')}`);
+      for (const ep of requestedEps) {
+        if (KNOWN_EPS.has(ep)) {
+          const flag = `--use_${ep}`;
+          core.info(`  Adding build flag: ${flag}`);
+          epFlags.push(flag);
+        } else {
+          // --- Fail on unknown EP ---
+          core.setFailed(`Unknown execution provider requested: '${ep}'. Allowed values are: ${knownEpsString}`);
+          return; // Stop processing immediately
+          // --- End Fail ---
         }
+      }
     }
     // --- End Process EPs ---
 
@@ -133,7 +131,7 @@ async function run() {
       '--parallel', '--use_vcpkg', '--use_vcpkg_ms_internal_asset_cache',
       ...(enableOnnxTestsFlag ? ['--enable_onnx_tests'] : []),
       ...epFlags,
-      extraBuildFlags
+      extraBuildFlags,
     ];
     const buildPyBase = buildPyBaseArgs.filter(part => part).join(' ');
     const fullBuildPyCommand = `${buildPyBase} ${buildPyArg}`;
@@ -142,8 +140,7 @@ async function run() {
 
     // --- Ensure Host Cache Directory Exists ---
     core.info(`Ensuring host cache directory exists: ${hostCacheDir}`);
-    try { /* ... mkdir ... */ await fs.mkdir(hostCacheDir, { recursive: true }); core.info(`Host directory ${hostCacheDir} ensured.`); }
-    catch (error) { /* ... core.warning ... */ core.warning(`Could not ensure host directory ${hostCacheDir} exists: ${error.message}. Proceeding with mount attempt.`);}
+    try { /* ... mkdir ... */ await fs.mkdir(hostCacheDir, { recursive: true }); core.info(`Host directory ${hostCacheDir} ensured.`); } catch (error) { /* ... core.warning ... */ core.warning(`Could not ensure host directory ${hostCacheDir} exists: ${error.message}. Proceeding with mount attempt.`); }
     // --- End Ensure Host Cache Directory ---
 
     // --- Construct Docker Run Arguments ---
@@ -158,21 +155,19 @@ async function run() {
 
     // Conditionally add test-related volume mounts
     if (lowerCaseRunMode === 'test') {
-        core.info('Mode is "test", checking host paths for optional test data volume mounts.');
-        if (dataOnnxExists) { dockerArgs.push('--volume', `${hostDataOnnxPath}:/data/onnx:ro`); }
-        else { core.info(`Skipping ${hostDataOnnxPath} mount as host path does not exist.`); }
-        if (dataModelsExists) { dockerArgs.push('--volume', `${hostDataModelsPath}:/data/models:ro`); }
-        else { core.info(`Skipping ${hostDataModelsPath} mount as host path does not exist.`); }
-        core.info(`Ensuring host directory exists for test mount: ${homeOnnxDir}`);
-        try {
-            await fs.mkdir(homeOnnxDir, { recursive: true });
-            core.info(`Host directory ${homeOnnxDir} ensured.`);
-            dockerArgs.push('--volume', `${homeOnnxDir}:${containerHomeDir}/.onnx`);
-        } catch (error) {
-            core.warning(`Could not ensure host directory ${homeOnnxDir} exists: ${error.message}. Skipping mount.`);
-        }
+      core.info('Mode is "test", checking host paths for optional test data volume mounts.');
+      if (dataOnnxExists) { dockerArgs.push('--volume', `${hostDataOnnxPath}:/data/onnx:ro`); } else { core.info(`Skipping ${hostDataOnnxPath} mount as host path does not exist.`); }
+      if (dataModelsExists) { dockerArgs.push('--volume', `${hostDataModelsPath}:/data/models:ro`); } else { core.info(`Skipping ${hostDataModelsPath} mount as host path does not exist.`); }
+      core.info(`Ensuring host directory exists for test mount: ${homeOnnxDir}`);
+      try {
+        await fs.mkdir(homeOnnxDir, { recursive: true });
+        core.info(`Host directory ${homeOnnxDir} ensured.`);
+        dockerArgs.push('--volume', `${homeOnnxDir}:${containerHomeDir}/.onnx`);
+      } catch (error) {
+        core.warning(`Could not ensure host directory ${homeOnnxDir} exists: ${error.message}. Skipping mount.`);
+      }
     } else {
-        core.info(`Mode is "${runMode}", skipping test data volume mounts.`);
+      core.info(`Mode is "${runMode}", skipping test data volume mounts.`);
     }
 
     dockerArgs.push('-w', '/onnxruntime_src');
@@ -181,16 +176,16 @@ async function run() {
 
     // Pass Cache Vars Conditionally
     if (shouldPassCacheVars) {
-        core.info('Passing cache environment variables into container for update mode.');
-        const cacheUrl = process.env.ACTIONS_CACHE_URL || '';
-        const runtimeToken = process.env.ACTIONS_RUNTIME_TOKEN || '';
-        if (cacheUrl) core.setSecret(cacheUrl);
-        if (runtimeToken) core.setSecret(runtimeToken);
-        if (cacheUrl) dockerArgs.push('-e', `ACTIONS_CACHE_URL=${cacheUrl}`); else core.info('ACTIONS_CACHE_URL not found.');
-        if (runtimeToken) dockerArgs.push('-e', `ACTIONS_RUNTIME_TOKEN=${runtimeToken}`); else core.info('ACTIONS_RUNTIME_TOKEN not found.');
-        dockerArgs.push('-e', 'RUNNER_TEMP=/onnxruntime_src/build');
+      core.info('Passing cache environment variables into container for update mode.');
+      const cacheUrl = process.env.ACTIONS_CACHE_URL || '';
+      const runtimeToken = process.env.ACTIONS_RUNTIME_TOKEN || '';
+      if (cacheUrl) core.setSecret(cacheUrl);
+      if (runtimeToken) core.setSecret(runtimeToken);
+      if (cacheUrl) dockerArgs.push('-e', `ACTIONS_CACHE_URL=${cacheUrl}`); else core.info('ACTIONS_CACHE_URL not found.');
+      if (runtimeToken) dockerArgs.push('-e', `ACTIONS_RUNTIME_TOKEN=${runtimeToken}`); else core.info('ACTIONS_RUNTIME_TOKEN not found.');
+      dockerArgs.push('-e', 'RUNNER_TEMP=/onnxruntime_src/build');
     } else {
-        core.info('Skipping passing cache environment variables into container.');
+      core.info('Skipping passing cache environment variables into container.');
     }
 
     dockerArgs.push(dockerImage);
@@ -198,12 +193,11 @@ async function run() {
     // --- End Construct Docker Arguments ---
 
     // --- Execute Docker Command ---
-    core.info(`Executing docker command...`);
+    core.info('Executing docker command...');
     core.debug(`docker ${dockerArgs.join(' ')}`);
     await exec.exec('docker', dockerArgs);
     core.info('Docker command executed successfully.');
     // --- End Execute Docker Command ---
-
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message}`);
   }
