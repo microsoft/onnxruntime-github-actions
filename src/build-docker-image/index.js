@@ -43,7 +43,7 @@ async function run () {
       : `${repository}:latest`;
 
     core.info(`Image: ${fullImageName}`);
-    const repo_dir = process.env.GITHUB_WORKSPACE;
+    const repoDir = process.env.GITHUB_WORKSPACE;
 
     // Copy deps.txt if it doesn't exist in the Dockerfile's context.
     const dstDepsFile = path.join(context, 'scripts', 'deps.txt');
@@ -53,7 +53,7 @@ async function run () {
     } catch {
       core.info(`Copying deps.txt to: ${dstDepsFile}`);
       await fs.mkdir(path.dirname(dstDepsFile), { recursive: true }); // Ensure 'scripts' directory exists
-      await fs.copyFile(path.join(repo_dir, 'cmake', 'deps.txt'), dstDepsFile);
+      await fs.copyFile(path.join(repoDir, 'cmake', 'deps.txt'), dstDepsFile);
     }
     let dockerCommand = ['build'];
     if (useContainerRegistry) {
