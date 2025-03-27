@@ -89,6 +89,46 @@ jobs:
           # ... other inputs ...
 
 ```
+
+
+# Integration Test
+
+Before making a release, please use the following steps to do an integration test with ONNX Runtime's main repo. While the standard release process involves tags and downloadable assets (as described in the "Usage" section), we need to test changes in a consuming repository *before* an official release is tagged, using the direct `uses:` syntax. This can be achieved by temporarily committing the compiled `build/` directory to a specific branch or commit.
+
+**Note:** This method involves committing build artifacts to the Git repository, which is generally discouraged for the `main` branch as it increases repository size and complicates diffs. Use this approach primarily on short-lived development/feature branches for integration testing purposes.
+
+**Steps that should be done in this repo:**
+
+1.  **Create a Branch:** Create a new development branch in *this* repository (e.g., `dev/feature-xyz`).
+2.  **Make Changes:** Modify the action source code (`src/`) and/or metadata (`actions/`).
+3.  **Build:** Run `npm run build` from the repository root. This generates the output in the `build/` directory.
+4.  **Commit Build Output:** Stage and commit **both** your source code changes AND the entire generated `build/` directory. You may need to bypass the `.gitignore` for the `build/` directory:
+    ```bash
+    git add src/ actions/ # Stage source changes
+    git add --force build/ # Force staging of the ignored build directory
+    git commit -m "feat: Update action XYZ (including build output for testing)"
+    ```
+5.  **Push Branch:** Push your development branch to the origin: `git push origin dev/feature-xyz`.
+6.  **Get Commit SHA (Recommended):** After pushing, get the full commit SHA of your latest commit on the development branch (e.g., using `git rev-parse HEAD` or from the GitHub UI).
+
+**Steps that should be done in the main ONNX Runtime repo**
+1.  Create a dev branch
+1.  Modify the `uses:` line for the action you want to test to point to the specific branch or commit SHA in *this* actions repository:
+
+    ```yaml
+    steps:
+      - name: Run Pre-Release Build Script in Docker
+        # Option 1: Using the branch name (updates automatically if branch changes)
+        # uses: microsoft/onnxruntime-github-actions/build/run-build-script-in-docker@dev/feature-xyz
+
+        # Option 2: Using the specific commit SHA (safer - pins to exact version)
+        uses: microsoft/onnxruntime-github-actions/build/run-build-script-in-docker@<full_commit_sha_from_actions_repo>
+        with:
+          # ... inputs ...
+    ```
+    *(Replace `<full_commit_sha_from_actions_repo>` with the actual SHA obtained in step 6 above).*
+
+
 ## Contributing
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a
@@ -102,6 +142,7 @@ provided by the bot. You will only need to do this once across all repos using o
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+
 
 ## Trademarks
 
