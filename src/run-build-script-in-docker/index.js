@@ -202,4 +202,10 @@ async function run () {
   }
 }
 
-module.exports = { run }; 
+// Only call run() automatically if this script is the main entry point
+if (require.main === module) {
+  run();
+}
+
+// Always export run for testing or other programmatic usage
+module.exports = { run };

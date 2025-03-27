@@ -14,9 +14,7 @@ const sharedEsbuildOptions = {
   platform: 'node',   // Target Node.js environment
   target: 'node20',   // Target Node.js version (must match action.yml)
   minify: true,       // Minify output code
-  sourcemap: true,    // Generate source maps for debugging
-  // Mark @actions/* packages as external, they are provided by the runner
-  external: ['@actions/core', '@actions/exec', '@actions/github'],
+  sourcemap: true    // Generate source maps for debugging
 };
 
 async function build() {
