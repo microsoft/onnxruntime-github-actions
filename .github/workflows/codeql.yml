@@ -1,0 +1,42 @@
+name: "CodeQL Security Analysis"
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run weekly on Sunday at a random time
+    - cron: '17 8 * * 0' # Example: Sunday 8:17 AM UTC
+
+permissions:
+  security-events: write # Required to upload results
+  actions: read          # Required for checkout
+  contents: read         # Required for checkout
+
+jobs:
+  analyze:
+    name: Analyze Code
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Specify JavaScript/TypeScript. Add other languages if needed later.
+        language: [ 'javascript-typescript' ] # Use combined entry for JS/TS
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Initializes the CodeQL tools for scanning.
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3 # Use latest v3
+      with:
+        languages: ${{ matrix.language }}
+
+    # Performs the CodeQL analysis.
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
