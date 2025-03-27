@@ -1,232 +1,123 @@
-const path = require('path');
-
-// Mock modules FIRST at the top level
-jest.mock('@actions/core');
-jest.mock('@actions/exec');
-jest.mock('fs/promises');
-jest.mock('os');
-
-// Require mocked modules AFTER jest.mock calls
 const core = require('@actions/core');
 const exec = require('@actions/exec');
-const fs = require('fs/promises');
-const os = require('os');
+const github = require('@actions/github');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os'); // Import the 'os' module
 
-// Require the module under test (assuming it exports 'run')
-// This loads the module once using the top-level mocks
-const { run } = require('../src/run-build-script-in-docker/index.js');
+async function run () {
+  try {
+    // Get inputs
+    const dockerfile = core.getInput('Dockerfile', { required: true });
+    let dockerBuildArgs = core.getInput('DockerBuildArgs'); // Defaults to "" if not provided.
+    const repository = core.getInput('Repository', { required: true });
 
-// Define variables accessible within describe/it blocks
-let inputs;
-let envVars;
+    const context = dockerfile.substring(0, dockerfile.lastIndexOf('/')) || '.'; // Extract directory of Dockerfile.
+    core.info(`Dockerfile context directory: ${context}`);
 
-describe('Run ORT Build Script in Docker Action', () => {
-  beforeEach(() => {
-    // Reset call history and mock implementations between tests
-    jest.clearAllMocks();
+    // Determine if we should use the cache.  Avoid cache if it's a PR from a fork.
+    const isPullRequest = github.context.eventName === 'pull_request';
+    const isFork = isPullRequest && github.context.payload.pull_request.head.repo.fork;
+    const useCache = !isFork;
+    const containerRegistry = 'onnxruntimebuildcache'; // Moved this here as it is a constant
+    const useContainerRegistry = useCache; // Simplified since they have the same condition
 
-    // --- Default Mock Inputs ---
-    inputs = {
-      docker_image: 'test-image:latest',
-      build_config: 'Release',
-      mode: 'build',
-      container_user: 'onnxruntimedev',
-      execution_providers: '',
-      extra_build_flags: '',
-      python_path_prefix: '',
-      allow_released_opset_only: '0',
-      nightly_build: '1',
-    };
-    core.getInput.mockImplementation((name) => inputs[name] || '');
+    let azLoginRan = false;
 
-    // --- Default Mock Environment Variables ---
-    envVars = {
-      GITHUB_WORKSPACE: '/mock/workspace',
-      RUNNER_TEMP: '/mock/temp',
-      ACTIONS_CACHE_URL: 'http://cache.mock.url',
-      ACTIONS_RUNTIME_TOKEN: 'MOCK_TOKEN_123',
-    };
-    process.env = { ...envVars };
+    if (useContainerRegistry) {
+      // Log in to Azure
+      try {
+        // Suppress stdout and stderr by redirecting to /dev/null (or equivalent)
+        // Added --output none
+        await exec.exec('az', ['login', '--identity', '--output', 'none'], { outStream: null, errStream: null });
+        azLoginRan = true;
+        await exec.exec('az', ['acr', 'login', '-n', containerRegistry]);
+      } catch (error) {
+        core.setFailed(`Azure login or ACR login failed: ${error.message}`);
+        return; // Exit if login fails.  Critical error.
+      }
+    }
 
-    // --- Mock OS ---
-    os.homedir.mockReturnValue('/mock/home');
+    const fullImageName = useContainerRegistry
+      ? `${containerRegistry}.azurecr.io/${repository}:latest`
+      : `${repository}:latest`;
 
-    // --- Mock FS ---
-    fs.stat.mockRejectedValue({ code: 'ENOENT' }); // Default: paths DON'T exist
-    fs.mkdir.mockResolvedValue(undefined); // Default: mkdir succeeds
+    core.info(`Image: ${fullImageName}`);
+    const repoDir = process.env.GITHUB_WORKSPACE;
 
-    // --- Mock Exec (Default: nvidia-smi fails (no GPU), others succeed) ---
-    // This default implementation will be used unless overridden within an 'it' block
-    exec.exec.mockImplementation(async (command) => {
-       if (command === 'nvidia-smi') {
-         core.info('Mock nvidia-smi: Simulating failure (exit code 1) by default');
-         return 1; // Simulate nvidia-smi failure
-       }
-       core.info(`Mock exec: Simulating success for command: ${command}`);
-       return 0; // Simulate success for other commands
-    });
-  }); // End beforeEach
+    // Copy deps.txt if it doesn't exist in the Dockerfile's context.
+    const dstDepsFile = path.join(context, 'scripts', 'deps.txt');
+    try {
+      await fs.access(dstDepsFile);
+      core.info('deps.txt already exists. No need to copy');
+    } catch {
+      core.info(`Copying deps.txt to: ${dstDepsFile}`);
+      await fs.mkdir(path.dirname(dstDepsFile), { recursive: true }); // Ensure 'scripts' directory exists
+      await fs.copyFile(path.join(repoDir, 'cmake', 'deps.txt'), dstDepsFile);
+    }
+    let dockerCommand = ['build'];
+    if (useContainerRegistry) {
+      dockerCommand = ['buildx', 'build', '--load'];
+      dockerCommand.push('--cache-from', `type=registry,ref=${fullImageName}`);
+      dockerCommand.push('--build-arg', 'BUILDKIT_INLINE_CACHE=1');
+    } else {
+      dockerCommand.push('--pull');
+    }
 
-  // --- Test Cases ---
+    // Get the current user ID.
+    const uid = os.userInfo().uid;
+    core.info(`Current user ID: ${uid}`);
+    dockerBuildArgs += ` --build-arg BUILD_UID=${uid}`;
 
-  // Temporarily commented out the failing "no GPU" test
-  /*
-  it('should run basic build mode correctly (no test data, no GPU)', async () => {
-    // Arrange: Default mocks in beforeEach simulate no GPU.
-    //          The assertion expect(dockerArgs).not.toContain('--gpus') failed previously
-    //          because the mock override inside the test wasn't working as expected then.
-    //          Keeping commented out for now to focus on other tests.
+    if (dockerBuildArgs) {
+      // Split the dockerBuildArgs string into an array, handling spaces and quotes correctly.
+      const argsArray = dockerBuildArgs.split(/\s(?=(?:[^'"`]*(['"`])[^'"`]*\1)*[^'"`]*$)/).filter(Boolean);
+      for (const arg of argsArray) {
+        dockerCommand.push(arg);
+      }
+    }
 
-    // Act
-    await run();
+    dockerCommand.push('--tag', fullImageName);
+    dockerCommand.push('--file', dockerfile);
+    dockerCommand.push(context);
 
-    // Assert
-    expect(exec.exec).toHaveBeenCalledWith('nvidia-smi', [], expect.any(Object));
-    expect(exec.exec).toHaveBeenCalledWith('docker', expect.any(Array));
+    // Execute the Docker build command.
+    try {
+      if (useContainerRegistry) {
+        await exec.exec('docker', ['--log-level', 'error', ...dockerCommand]);
+      } else {
+        await exec.exec('docker', dockerCommand);
+      }
+    } catch (error) {
+      core.setFailed(`Docker build failed: ${error.message}`);
+      return; // Exit if docker build failed.
+    }
 
-    const dockerCall = exec.exec.mock.calls.find(call => call[0] === 'docker');
-    expect(dockerCall).toBeDefined();
-    const dockerArgs = dockerCall[1];
+    // Tag the image with the repository name.
+    await exec.exec('docker', ['tag', fullImageName, repository]);
 
-    expect(dockerArgs).not.toContain('--gpus'); // This is the assertion that needs careful mock setup
-    // ... other assertions ...
-    expect(core.setFailed).not.toHaveBeenCalled();
-  });
-  */
+    // Push only if using the container registry AND it's a push to the main branch.
+    if (useContainerRegistry && github.context.ref === 'refs/heads/main' && github.context.eventName === 'push') {
+      await exec.exec('docker', ['push', fullImageName]);
+    } else {
+      if (github.context.ref !== 'refs/heads/main' || github.context.eventName !== 'push') {
+        core.info('Skipping docker push. Not a push to the main branch.');
+      }
+    }
+    // Logout from Azure ACR (if we logged in) using docker logout
+    if (azLoginRan) {
+      const registryUrl = `${containerRegistry}.azurecr.io`;
+      try {
+        await exec.exec('docker', ['logout', registryUrl]);
+      } catch (error) {
+        core.warning(`Docker logout failed: ${error.message}`); // Warning, not critical.
+      }
+    }
 
-  it('should add --gpus all if nvidia-smi succeeds', async () => {
-     // Arrange: Override exec mock implementation specifically for this test
-     exec.exec.mockImplementation(async (command) => {
-       if (command === 'nvidia-smi') {
-         core.info('Mock nvidia-smi: Simulating success (exit code 0) for this test');
-         return 0; // Simulate SUCCESS
-       }
-       core.info(`Mock exec: Simulating success for command: ${command}`);
-       return 0;
-     });
+    core.info('Docker build completed successfully.');
+  } catch (error) {
+    core.setFailed(error.message);
+  }
+}
 
-     // Act
-     await run();
-
-     // Assert
-     expect(exec.exec).toHaveBeenCalledWith('nvidia-smi', [], expect.any(Object));
-     expect(exec.exec).toHaveBeenCalledWith('docker', expect.any(Array));
-     const dockerCall = exec.exec.mock.calls.find(call => call[0] === 'docker');
-     const dockerArgs = dockerCall[1];
-     expect(dockerArgs).toContain('--gpus'); // Verify --gpus IS present
-     expect(dockerArgs).toContain('all');
-     expect(core.setFailed).not.toHaveBeenCalled();
-  });
-
-  it('should run update mode and pass cache vars', async () => {
-    // Arrange
-    inputs.mode = 'update';
-
-    // Act
-    await run();
-
-    // Assert
-    expect(exec.exec).toHaveBeenCalledWith('docker', expect.any(Array));
-    const dockerCall = exec.exec.mock.calls.find(call => call[0] === 'docker');
-    const dockerArgs = dockerCall[1];
-    const bashCommand = dockerArgs.find(arg => arg.startsWith('set -ex;'));
-    expect(bashCommand).toContain('--update');
-    expect(dockerArgs).toContain('-e', `ACTIONS_CACHE_URL=${envVars.ACTIONS_CACHE_URL}`);
-    expect(dockerArgs).toContain('-e', `ACTIONS_RUNTIME_TOKEN=${envVars.ACTIONS_RUNTIME_TOKEN}`);
-    expect(dockerArgs).toContain('-e', 'RUNNER_TEMP=/onnxruntime_src/build');
-    expect(core.setSecret).toHaveBeenCalledWith(envVars.ACTIONS_CACHE_URL);
-    expect(core.setSecret).toHaveBeenCalledWith(envVars.ACTIONS_RUNTIME_TOKEN);
-    expect(core.setFailed).not.toHaveBeenCalled();
-  });
-
-  it('should run test mode and add test volumes/flag if host paths exist', async () => {
-    // Arrange
-    inputs.mode = 'test';
-    fs.stat.mockImplementation(async (filePath) => {
-      if (filePath === '/data/onnx' || filePath === '/data/models') { return {}; }
-      return {}; // Assume others exist
-    });
-
-    // Act
-    await run();
-
-    // Assert
-    const dockerCall = exec.exec.mock.calls.find(call => call[0] === 'docker');
-    const dockerArgs = dockerCall[1];
-    const bashCommand = dockerArgs.find(arg => arg.startsWith('set -ex;'));
-    expect(bashCommand).toContain('--test');
-    expect(bashCommand).toContain('--enable_onnx_tests');
-    expect(dockerArgs).toContain('--volume', `/data/onnx:/data/onnx:ro`);
-    expect(dockerArgs).toContain('--volume', `/data/models:/data/models:ro`);
-    expect(dockerArgs).toContain('--volume', `${path.join(os.homedir(), '.onnx')}:/home/onnxruntimedev/.onnx`);
-    expect(fs.mkdir).toHaveBeenCalledWith(path.join('/mock/home', '.onnx'), { recursive: true });
-    expect(core.setFailed).not.toHaveBeenCalled();
-  });
-
-   it('should run test mode and skip test volumes/flag if host paths dont exist', async () => {
-    // Arrange
-    inputs.mode = 'test';
-    // Use default fs.stat mock (rejects with ENOENT) from beforeEach
-
-    // Act
-    await run();
-
-    // Assert
-    const dockerCall = exec.exec.mock.calls.find(call => call[0] === 'docker');
-    const dockerArgs = dockerCall[1];
-    const bashCommand = dockerArgs.find(arg => arg.startsWith('set -ex;'));
-    expect(bashCommand).toContain('--test');
-    expect(bashCommand).not.toContain('--enable_onnx_tests');
-    expect(dockerArgs).not.toContain('/data/onnx:ro');
-    expect(dockerArgs).not.toContain('/data/models:ro');
-    expect(dockerArgs).toContain('--volume', `${path.join(os.homedir(), '.onnx')}:/home/onnxruntimedev/.onnx`);
-    expect(fs.mkdir).toHaveBeenCalledWith(path.join('/mock/home', '.onnx'), { recursive: true });
-    expect(core.setFailed).not.toHaveBeenCalled();
-  });
-
-  it('should add --use_<ep> flags for requested EPs', async () => {
-    // Arrange
-    inputs.execution_providers = 'cuda dml tensorRT';
-
-    // Act
-    await run();
-
-    // Assert
-    const dockerCall = exec.exec.mock.calls.find(call => call[0] === 'docker');
-    const dockerArgs = dockerCall[1];
-    const bashCommand = dockerArgs.find(arg => arg.startsWith('set -ex;'));
-    expect(bashCommand).toContain('--use_cuda');
-    expect(bashCommand).toContain('--use_dml');
-    expect(bashCommand).toContain('--use_tensorrt');
-    expect(core.setFailed).not.toHaveBeenCalled();
-  });
-
-  it('should fail if an unknown EP is requested', async () => {
-    // Arrange
-    inputs.execution_providers = 'cuda fake_ep';
-
-    // Act
-    await run();
-
-    // Assert
-    expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining("Unknown execution provider requested: 'fake_ep'"));
-    expect(exec.exec).not.toHaveBeenCalledWith('docker', expect.any(Array));
-  });
-
-  it('should use container_user for mount paths', async () => {
-    // Arrange
-    inputs.container_user = 'testuser123';
-    inputs.mode = 'test';
-
-    // Act
-    await run();
-
-    // Assert
-    const dockerCall = exec.exec.mock.calls.find(call => call[0] === 'docker');
-    const dockerArgs = dockerCall[1];
-    expect(dockerArgs).toContain('--volume', `${path.join(os.homedir(), '.cache')}:/home/testuser123/.cache`);
-    expect(dockerArgs).toContain('--volume', `${path.join(os.homedir(), '.onnx')}:/home/testuser123/.onnx`);
-    expect(core.setFailed).not.toHaveBeenCalled();
-  });
-
-}); // End describe
+run();
