@@ -1,35 +1,11 @@
-import { defineConfig, globalIgnores } from "eslint/config";
+import { defineConfig } from "eslint/config";
 import globals from "globals";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import js from "@eslint/js";
-import { FlatCompat } from "@eslint/eslintrc";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const compat = new FlatCompat({
-    baseDirectory: __dirname,
-    recommendedConfig: js.configs.recommended,
-    allConfig: js.configs.all
-});
 
 export default defineConfig([
-    globalIgnores(["**/node_modules/", "**/build/", "**/dist/", "**/coverage/", "**/*.log"]),
-    {
-        extends: compat.extends("standard"),
-
-        languageOptions: {
-            globals: {
-                ...globals.node,
-            },
-
-            ecmaVersion: "latest",
-            sourceType: "commonjs",
-        },
-
-        rules: {
-            semi: ["error", "always"],
-            "comma-dangle": ["error", "always-multiline"],
-        },
-    },
+  { files: ["**/*.{js,mjs,cjs}"] },
+  { files: ["**/*.js"], languageOptions: { sourceType: "commonjs" } },
+  { files: ["**/*.{js,mjs,cjs}"], languageOptions: { globals: globals.node } },
+  { files: ["**/*.{js,mjs,cjs}"], plugins: { js }, extends: ["js/recommended"] },
 ]);
