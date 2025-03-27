@@ -1,0 +1,67 @@
+name: Create Release and Upload Assets
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # Trigger only on tags like v1.0.0, v1.2.3 etc.
+
+# Permissions needed to create releases and upload assets
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release Actions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code at Tag
+        uses: actions/checkout@v4
+        # This automatically checks out the commit associated with the pushed tag
+
+      - name: Get Tag Name
+        id: get_tag
+        # Extract tag name (e.g., v1.0.0) from the ref (refs/tags/v1.0.0)
+        run: echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Actions using esbuild
+        run: npm run build # Creates the local build/ directory
+
+      - name: Package Built Actions into Zip Archive
+        id: package_actions
+        run: |
+          TAG_NAME="${{ steps.get_tag.outputs.tag_name }}"
+          PACKAGE_NAME="onnxruntime-actions-${TAG_NAME}.zip"
+          echo "Creating package: ${PACKAGE_NAME}"
+          # Navigate into the build directory to zip its contents correctly
+          cd build
+          if [ -z "$(ls -A .)" ]; then
+            echo "::error::Build directory ('build/') is empty after build step!"
+            exit 1
+          fi
+          # Create a zip file in the parent directory containing all files/folders within build/
+          zip -r ../${PACKAGE_NAME} ./*
+          cd ..
+          # Output the path and name for the upload step
+          echo "package_path=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "package_name=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "Created package:"
+          ls -l ${PACKAGE_NAME} # Verify zip exists and show size
+
+      - name: Create GitHub Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          # tag_name: ${{ steps.get_tag.outputs.tag_name }} # Uses the triggering tag by default
+          # name: Release ${{ steps.get_tag.outputs.tag_name }} # Optional: Customize release title
+          files: ${{ steps.package_actions.outputs.package_path }} # Path to the zip file to upload
+          generate_release_notes: true # Optional: Auto-generate release notes from commits since last tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Required for creating release/uploading assets

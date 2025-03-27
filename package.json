@@ -1,6 +1,6 @@
 {
   "name": "onnxruntime-github-actions",
-  "version": "1.0.0",
+  "version": "0.0.2",
   "description": "Reusable GitHub Actions for ONNX Runtime CI",
   "private": true,
   "scripts": {
@@ -15,15 +15,15 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^1.10.1", // Use latest stable 1.x
+    "@actions/core": "^1.10.1",
     "@actions/exec": "^1.1.1",
     "@actions/github": "^6.0.0"
   },
   "devDependencies": {
-    "@vercel/ncc": "^0.38.1", // Keep ncc if build-docker-image still uses it, otherwise remove
-    "esbuild": "^0.23.0" // Add esbuild
+    "@vercel/ncc": "^0.38.1",
+    "esbuild": "^0.23.0"
   },
   "engines": {
-    "node": ">=20" // Specify node version
+    "node": ">=20"
   }
 }

@@ -8,11 +8,6 @@ yarn-error.log*
 # Build output
 build/
 
-# Old dist folders (if removing from source control)
-# src/**/dist/
-# build-docker-image/dist/
-# run-build-script-in-docker/dist/
-
 # IDE/OS files
 .vscode/
 .idea/

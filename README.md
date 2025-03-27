@@ -1,9 +1,94 @@
-# Project
+# ONNX Runtime GitHub Actions
 
-The repo contains reusable Github Actions for constructing pull request pipelines for the ONNX Runtime project's repos. It is created for avoiding checking compiled javascript code to these repos.
+This repository contains reusable GitHub Actions designed primarily for CI/CD pipelines within the ONNX Runtime organization's projects. It consolidates multiple actions into a single Node.js project to simplify maintenance and avoid checking compiled JavaScript code into consuming repositories.
 
-Usually one git repo should only contain one action, but this repo has multiple. 
+This project uses `esbuild` to compile the JavaScript source code for each action. The compiled output is **not** committed to the `main` branch. Instead, releases are created based on Git tags, and the compiled actions are attached as downloadable assets to GitHub Releases.
 
+## Project Structure
+
+* `/src`: Contains the source TypeScript/JavaScript code for each action in its own subdirectory.
+* `/actions`: Contains the `action.yml` metadata file for each action in its own subdirectory.
+* `/build`: (Generated, not committed to `main`) Contains the compiled output after running `npm run build`. Each action has a subdirectory here containing its `action.yml` and `dist/index.js`.
+* `package.json`: Manages dependencies and build scripts for all actions.
+* `esbuild.config.mjs`: Configuration file for the `esbuild` bundler.
+
+## Available Actions
+
+1.  **`build-docker-image`**
+    * Builds a Docker image, with optional caching and pushing via Azure Container Registry.
+    * See: [`actions/build-docker-image/action.yml`](./actions/build-docker-image/action.yml)
+    * *(Optional: Add link to a more detailed README if it exists at `actions/build-docker-image/README.md`)*
+
+2.  **`run-build-script-in-docker`**
+    * Runs the ONNX Runtime `tools/ci_build/build.py` script inside a specified Docker container.
+    * Supports different modes (`update`, `build`, `test`).
+    * Includes auto-detection for NVIDIA GPUs (`--gpus all`).
+    * Manages common volume mounts (workspace, cache, test data).
+    * Handles enabling execution providers via `--use_<ep>` flags.
+    * See: [`actions/run-build-script-in-docker/action.yml`](./actions/run-build-script-in-docker/action.yml)
+
+## Usage (for Consumers)
+
+Because the compiled action code (in the `build/` directory) is not present on the `main` branch or directly associated with version tags in the repository filesystem, you **cannot** use the actions directly like this:
+
+```yaml
+# --- THIS WILL NOT WORK ---
+# uses: microsoft/onnxruntime-github-actions/build/run-build-script-in-docker@vX.Y.Z
+```
+
+Instead, you must download the compiled action bundle from the corresponding GitHub Release asset and reference it locally:
+
+1. Find the Release: Go to the Releases page of this repository.
+2. Identify Version: Find the release tag (e.g., v0.0.2) corresponding to the version you want to use.
+3. Download Asset: Download the .zip asset attached to that release (e.g., onnxruntime-actions-v0.0.2.zip).
+4. Use in Workflow: Add steps to your workflow to download and unzip the asset, then reference the action using its local path.
+
+Example Workflow Snippet:
+```yaml
+name: Example Workflow Using ORT Actions
+
+on: [push]
+
+jobs:
+  build_with_ort_action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Consumer Repo
+        uses: actions/checkout@v4
+
+      # 1. Download the specific version of the action bundle
+      - name: Download ORT Actions Asset (v0.0.2) # <-- Adjust version as needed
+        uses: dsaltares/fetch-gh-release-asset@1.1.0 # Action to download assets
+        with:
+          repo: 'microsoft/onnxruntime-github-actions'   # The repo containing the actions
+          version: 'tags/v0.0.2'                          # The specific tag/version to use
+          file: 'onnxruntime-actions-v0.0.2.zip'         # The asset filename (matches release workflow output)
+          target: 'onnxruntime-actions.zip'             # Local filename to save as
+        env:
+          # Use default token for public repos, provide PAT for private if necessary
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Unzip the downloaded actions
+      - name: Unzip ORT Actions
+        run: |
+          mkdir -p ./.github/_downloaded_actions # Create a directory to hold them
+          unzip onnxruntime-actions.zip -d ./.github/_downloaded_actions
+          echo "Unzipped contents:"
+          ls -lR ./.github/_downloaded_actions # Verify structure
+
+      # 3. Use the action via its local path
+      - name: Run Build Script in Docker
+        # Reference the action.yml inside the unzipped structure
+        uses: ./.github/_downloaded_actions/run-build-script-in-docker
+        with:
+          # Provide inputs for the action
+          docker_image: 'your-build-image:latest'
+          build_config: 'Release'
+          mode: 'build' # Or 'update', 'test'
+          execution_providers: 'cuda tensorrt'
+          # ... other inputs ...
+
+```
 ## Contributing
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a
