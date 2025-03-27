@@ -5,9 +5,9 @@
   "private": true,
   "scripts": {
     "build": "node esbuild.config.mjs",
-    "lint": "eslint src/**/*.js",
-    "lint:fix": "eslint src/**/*.js --fix",
-    "test": "jest" 
+    "lint": "npx eslint src/**/*.js",  
+    "lint:fix": "npx eslint src/**/*.js --fix",
+    "test": "jest"
   },
   "keywords": [
     "GitHub",
@@ -22,7 +22,6 @@
     "@actions/github": "^6.0.0"
   },
   "devDependencies": {
-    "@vercel/ncc": "^0.38.1",
     "esbuild": "^0.23.0",
     "eslint": "^8.57.1",
     "eslint-config-standard": "^17.1.0",
