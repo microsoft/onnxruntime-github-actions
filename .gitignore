@@ -1,0 +1,19 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.env
+
+# Build output
+build/
+
+# Old dist folders (if removing from source control)
+# src/**/dist/
+# build-docker-image/dist/
+# run-build-script-in-docker/dist/
+
+# IDE/OS files
+.vscode/
+.idea/
+*.DS_Store

@@ -1,0 +1,29 @@
+{
+  "name": "onnxruntime-github-actions",
+  "version": "1.0.0",
+  "description": "Reusable GitHub Actions for ONNX Runtime CI",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "GitHub",
+    "Actions",
+    "ONNX Runtime"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.10.1", // Use latest stable 1.x
+    "@actions/exec": "^1.1.1",
+    "@actions/github": "^6.0.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.1", // Keep ncc if build-docker-image still uses it, otherwise remove
+    "esbuild": "^0.23.0" // Add esbuild
+  },
+  "engines": {
+    "node": ">=20" // Specify node version
+  }
+}
