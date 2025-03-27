@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "build": "node esbuild.config.mjs",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix", 
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -21,7 +23,12 @@
   },
   "devDependencies": {
     "@vercel/ncc": "^0.38.1",
-    "esbuild": "^0.23.0"
+    "esbuild": "^0.23.0",
+    "eslint": "^8.57.1",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^6.6.0"
   },
   "engines": {
     "node": ">=20"
