@@ -1,4 +1,3 @@
-# .github/workflows/build.yml
 name: Build Actions Check
 
 on:
@@ -9,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build & Lint JavaScript Actions
+  linux-ci:
+    name: Linux CI
     runs-on: ubuntu-latest
 
     steps:
@@ -34,3 +33,71 @@ jobs:
 
       - name: Run Unit Tests with Jest
         run: npm test 
+
+  windows-ci:
+    name: Windows CI
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        # npm ci should work fine on Windows
+        run: npm ci
+
+      - name: Lint Source Code
+        # Assumes your lint script (ESLint) works cross-platform
+        run: npm run lint
+
+      - name: Build Actions using esbuild
+        # Assumes your build script (esbuild) works cross-platform
+        # This builds the JS code (e.g., dist/index.js) needed by the action
+        run: npm run build
+
+      - name: Run Unit Tests with Jest
+        # Assumes your Jest tests work cross-platform
+        run: npm test
+
+      - name: Locate vcvarsall and Setup Env
+        uses: ./.github/actions/locate-vcvarsall-and-setup-env
+        with:
+          architecture: x64
+
+      - name: Compile terrapin_tool.exe
+        shell: cmd # Use cmd shell, often better set up for cl.exe
+        run: |
+          echo "Navigating to C++ source directory..."
+          cd "${{ github.workspace }}\test\cpp"
+          IF %ERRORLEVEL% NEQ 0 (
+             echo "Error: Failed to change directory to test\cpp"
+             exit /B 1
+          )
+
+          echo "Compiling main.cpp..."
+          cl.exe /nologo /EHsc /std:c++20 /MD /W4 /DUNICODE /D_UNICODE main.cpp /Fe:terrapin_tool.exe winhttp.lib bcrypt.lib shell32.lib
+          IF %ERRORLEVEL% NEQ 0 (
+             echo "Error: C++ compilation failed."
+             exit /B 1
+          )
+
+          echo "Compilation successful. Listing directory contents:"
+          dir terrapin_tool.exe
+
+      # --- Test setup-cmake Action (Now on Windows) ---
+      - name: Test setup-cmake action (Windows)
+        uses: ./build/setup-cmake
+        with:
+          cmake-version: '4.0.0'
+          cmake-hash: '704fc67b9efa1d65e68a516b439ce3f65f1d6388dc0794002a342d4b59cd3ea63619e674d0343a08c03e9831b053bcbb3ae7635ac42f7796b8d440deeb81b7f6'
+          add-to-path: 'true'
+          terrapin-tool-path: ${{ github.workspace }}/test/cpp/terrapin_tool.exe
+
+      - name: Verify CMake Installation (Windows)
+        run: cmake --version
