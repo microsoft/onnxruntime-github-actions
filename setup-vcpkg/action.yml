@@ -1,0 +1,19 @@
+name: 'Setup vcpkg'
+description: 'Downloads, verifies, extracts, and caches a specific tagged version of vcpkg'
+author: 'Your Name/Org'
+
+inputs:
+  vcpkg-version:
+    description: 'The vcpkg tag version to download (e.g., 2025.03.19)'
+    required: true
+  vcpkg-hash:
+    description: 'The expected SHA512 hash of the downloaded zip archive'
+    required: true 
+
+outputs:
+  vcpkg-root:
+    description: 'The installation path of the cached vcpkg instance'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
