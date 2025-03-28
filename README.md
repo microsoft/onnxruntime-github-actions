@@ -17,7 +17,7 @@ This project uses `esbuild` to compile the JavaScript source code for each actio
 1.  **`build-docker-image`**
     * Builds a Docker image, with optional caching and pushing via Azure Container Registry. This Action is Linux only.
     * See: [`actions/build-docker-image/action.yml`](./actions/build-docker-image/action.yml)
-	* See details: [`.github/actions/build-docker-image/README.md`](./.github/actions/build-docker-image/README.md)    
+    * See details: [`.github/actions/build-docker-image/README.md`](./.github/actions/build-docker-image/README.md)    
 
 2.  **`run-build-script-in-docker`**
     * Runs the ONNX Runtime `tools/ci_build/build.py` script inside a specified Docker container. This Action is Linux only.
