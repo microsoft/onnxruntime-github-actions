@@ -4,7 +4,7 @@ This action downloads a specific tagged release archive of vcpkg from an interna
 
 It simplifies the process of getting a ready-to-use vcpkg instance in your GitHub Actions workflows, ensuring consistency and leveraging caching for speed.
 
-Once set up, it exports the `VCPKG_INSTALLATION_ROOT` environment variable pointing to the cached installation path, which can be used by subsequent steps (e.g., CMake toolchain configuration).
+Once set up, it exports the `VCPKG_INSTALLATION_ROOT` environment variable pointing to the cached installation path, which can be used by subsequent steps (e.g., CMake toolchain configuration). ONNX Runtime's [build.py](https://github.com/microsoft/onnxruntime/blob/main/tools/ci_build/build.py) reads this environment variable.
 
 ## Inputs
 
