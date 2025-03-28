@@ -1,0 +1,22 @@
+name: 'Setup vcpkg'
+description: 'Downloads, verifies, extracts, and caches a specific tagged version of vcpkg'
+
+inputs:
+  vcpkg-version:
+    description: 'The vcpkg tag version to download (e.g., 2025.03.19)'
+    required: true
+  vcpkg-hash:
+    description: 'The expected SHA512 hash (used by Terrapin tool via -s)'
+    required: true
+  terrapin-tool-path:
+    description: 'Path to the TerrapinRetrievalTool.exe executable'
+    required: false
+    default: 'C:/local/Terrapin/TerrapinRetrievalTool.exe'
+
+outputs:
+  vcpkg-root:
+    description: 'The installation path of the cached vcpkg instance'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
