@@ -8,10 +8,11 @@ Once set up, it exports the `VCPKG_INSTALLATION_ROOT` environment variable point
 
 ## Inputs
 
-| Input           | Description                                                | Required | Example        |
-| --------------- | ---------------------------------------------------------- | :------: | -------------- |
-| `vcpkg-version` | The vcpkg tag version to download (e.g., `2023.10.19`)     |  `true`  | `2025.03.19`   |
-| `vcpkg-hash`    | The expected SHA512 hash of the downloaded `.zip` archive. |  `true`  | `17e96169...` |
+| Input                | Description                                                      | Required | Default                                       | Example        |
+| -------------------- | ---------------------------------------------------------------- | :------: | --------------------------------------------- | -------------- |
+| `vcpkg-version`      | The vcpkg tag version to download (e.g., `2023.10.19`)           |  `true`  | -                                             | `2025.03.19`   |
+| `vcpkg-hash`         | The expected SHA512 hash (used by Terrapin tool via `-s`).       |  `true`  | -                                             | `17e96169...` |
+| `terrapin-tool-path` | Path to the `TerrapinRetrievalTool.exe` executable.              |  `true`  | `C:/local/Terrapin/TerrapinRetrievalTool.exe` |                |
 
 **Finding Hashes:** You typically need to download the specific tag's zip archive (e.g., `https://github.com/microsoft/vcpkg/archive/refs/tags/YYYY.MM.DD.zip`) and calculate its SHA512 hash locally.
 
