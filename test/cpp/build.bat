@@ -1,0 +1,1 @@
+cl.exe /nologo /EHsc /std:c++20 /MD /W4 /DUNICODE /D_UNICODE main.cpp /Fe:terrapin_tool.exe winhttp.lib bcrypt.lib shell32.lib
