@@ -1,9 +1,9 @@
 const core = require('@actions/core');
 const tc = require('@actions/tool-cache');
 const exec = require('@actions/exec');
-const path = require('path');
-const fs = require('fs'); // Needed for verifySHA512 stream
-const crypto = require('crypto'); // Needed for verifySHA512
+const crypto = require('node:crypto');
+const path = require('node:path');
+const fs = require('node:fs');
 
 /**
  * Verifies the SHA512 hash of a downloaded file.
@@ -32,7 +32,7 @@ async function run() {
         // --- Get Inputs ---
         const vcpkgVersion = core.getInput('vcpkg-version', { required: true });
         const vcpkgHash = core.getInput('vcpkg-hash', { required: true });
-        const terrapinPath = core.getInput('terrapin-tool-path', { required: true });
+        const terrapinPath = core.getInput('terrapin-tool-path');
 
         const toolName = 'vcpkg';
         const extractedFolderName = `vcpkg-${vcpkgVersion}`;
