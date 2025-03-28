@@ -15,17 +15,24 @@ This project uses `esbuild` to compile the JavaScript source code for each actio
 ## Available Actions
 
 1.  **`build-docker-image`**
-    * Builds a Docker image, with optional caching and pushing via Azure Container Registry.
+    * Builds a Docker image, with optional caching and pushing via Azure Container Registry. This Action is Linux only.
     * See: [`actions/build-docker-image/action.yml`](./actions/build-docker-image/action.yml)
-    * *(Optional: Add link to a more detailed README if it exists at `actions/build-docker-image/README.md`)*
+	* See details: [`.github/actions/build-docker-image/README.md`](./.github/actions/build-docker-image/README.md)    
 
 2.  **`run-build-script-in-docker`**
-    * Runs the ONNX Runtime `tools/ci_build/build.py` script inside a specified Docker container.
+    * Runs the ONNX Runtime `tools/ci_build/build.py` script inside a specified Docker container. This Action is Linux only.
     * Supports different modes (`update`, `build`, `test`).
     * Includes auto-detection for NVIDIA GPUs (`--gpus all`).
     * Manages common volume mounts (workspace, cache, test data).
     * Handles enabling execution providers via `--use_<ep>` flags.
     * See: [`actions/run-build-script-in-docker/action.yml`](./actions/run-build-script-in-docker/action.yml)
+
+3.  **`setup-vcpkg`**
+    * Downloads, verifies, bootstraps, and caches a specific tagged version of vcpkg. This Action is Windows only.
+    * Sets the `VCPKG_INSTALLATION_ROOT` environment variable for subsequent steps.
+    * Leverages `@actions/tool-cache` for efficient caching.
+    * See: [`.github/actions/setup-vcpkg/action.yml`](./.github/actions/setup-vcpkg/action.yml)
+    * See details: [`.github/actions/setup-vcpkg/README.md`](./.github/actions/setup-vcpkg/README.md)
 
 ## Usage (for Consumers)
 
