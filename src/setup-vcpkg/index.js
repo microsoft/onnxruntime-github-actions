@@ -1,6 +1,5 @@
 const core = require('@actions/core');
 const tc = require('@actions/tool-cache');
-const io = require('@actions/io');
 const exec = require('@actions/exec'); // Import exec
 const path = require('path');
 const fs = require('fs');
@@ -69,7 +68,6 @@ async function run() {
                  }
             }
 
-            // --- !! NEW: Bootstrap vcpkg !! ---
             core.info(`Bootstrapping vcpkg in ${extractedPath}...`);
             const bootstrapScriptName = process.platform === 'win32' ? 'bootstrap-vcpkg.bat' : 'bootstrap-vcpkg.sh';
             const bootstrapScriptPath = path.join(extractedPath, bootstrapScriptName);
@@ -100,10 +98,6 @@ async function run() {
             core.info(`Caching bootstrapped directory: ${extractedPath}`);
             vcpkgPath = await tc.cacheDir(extractedPath, toolName, vcpkgVersion);
             core.info(`Successfully cached vcpkg to: ${vcpkgPath}`);
-
-            // --- Clean up temporary download ---
-            // await io.rmRF(vcpkgZipPath); // Optional cleanup
-            // await io.rmRF(tempExtractPath); // Optional cleanup
         }
 
         // --- Set Environment Variable ---
