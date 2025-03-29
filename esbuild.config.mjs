@@ -1,6 +1,3 @@
-// c:\src\onnxruntime-github-actions\esbuild.config.mjs
-// Updated: 2025-03-28 - Added skip for 'common' directory
-
 import * as esbuild from 'esbuild';
 import * as fs from 'fs/promises';
 import * as path from 'path';

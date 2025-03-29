@@ -1,6 +1,3 @@
-// src/build-docker-image/index.js
-// Updated: 2025-03-29 - Add BUILD_UID to checksum calculation
-
 const core = require('@actions/core');
 const glob = require('@actions/glob');
 const crypto = require('node:crypto');
