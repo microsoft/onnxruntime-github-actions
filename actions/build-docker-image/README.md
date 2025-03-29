@@ -1,75 +1,126 @@
 # Build Docker Image Action
 
-This GitHub Action builds a Docker image and optionally pushes it to an Azure Container Registry (ACR). It's designed to be used as part of a larger CI/CD workflow for projects that require building and testing within a specific Docker environment.
+This GitHub Action builds a Docker image using the standard `docker build` command. It implements an image-level caching strategy by tagging images with a checksum derived from the Dockerfile, build context, and build arguments. It attempts to pull a matching checksum-tagged image from the specified registry before building, and optionally pushes newly built images back to the registry on specific branches. It also handles registry logins for GHCR and ACR.
+
+The build context is automatically determined as the directory containing the specified Dockerfile.
 
 ## Inputs
 
-| Input               | Description                                                                                                                   | Required | Default |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- | :------: | ------- |
-| `Dockerfile`        | Path to the Dockerfile.                                                                                                        |   Yes    |         |
-| `DockerBuildArgs`   | Arguments to pass to the `docker build` command.  Should be a single string with space-separated arguments.                  |   No    |  `""`   |
-| `Repository`        | The image repository name.                                                                                                     |   Yes    |         |
+| Input                           | Description                                                                                                                                                              | Required | Default          |
+| :------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------: | :--------------- |
+| `dockerfile`                    | Path to the Dockerfile (relative to repository root). The directory containing this file will be used as the build context.                                               |   Yes    |                  |
+| `image-name`                    | Base image name *without* tag (e.g., `ghcr.io/owner/repo/img`, `myacr.azurecr.io/myimg`). A calculated checksum tag will be appended for caching and potential push/pull. |   Yes    |                  |
+| `build-args`                    | String of build arguments (e.g., `"ARG1=VAL1 ARG2=VAL2"`) to pass to `docker build` AND include in the cache checksum calculation.                                       |    No    | `""`             |
+| `hash-algorithm`                | Hash algorithm for checksum (e.g., `sha256`, `sha512`). Must be supported by Node.js crypto module.                                                                       |    No    | `"sha256"`       |
+| `push`                          | Set to `true` to push the checksum-tagged image if it was built (cache miss) **AND** if the workflow runs on an allowed branch (`main`, `rel-*`, `snnn/ci`) and is not a PR. |    No    | `"false"`        |
+| `pull`                          | Set to `true` to attempt pulling the checksum-tagged image from the registry before building to check for a cache hit.                                                 |    No    | `"true"`         |
+| `login-ghcr`                    | Attempt login to `ghcr.io` using `GITHUB_TOKEN`. Defaults to `true` if `image-name` starts with `ghcr.io/`, otherwise `false`. Needs `packages: write` permission.     |    No    | *(dynamic)* |
+| `azure-container-registry-name` | If provided, the action will attempt `az login --identity` and `az acr login` with this name *before* the build (useful for pulling base images from a private ACR).      |    No    | `""`             |
+| `skip-build-on-pull-hit`        | If `pull` is `true` and the image is pulled successfully (cache hit), set this to `true` to skip the `docker build` step entirely.                                     |    No    | `"true"`         |
 
 ## Outputs
-None
 
-## Usage
+| Output            | Description                                                                                                       |
+| :---------------- | :---------------------------------------------------------------------------------------------------------------- |
+| `cache-hit`       | `"true"` if a cached image was pulled successfully based on the checksum tag, `"false"` otherwise.                  |
+| `image-tag`       | The calculated checksum tag used for the image (e.g., `sha256-abcdef123...`).                                     |
+| `full-image-name` | The full image name including the calculated checksum tag (e.g., `ghcr.io/owner/repo/img:sha256-abcdef123...`). |
+
+## Caching Mechanism
+
+This action implements **image-level caching** using checksums:
+
+1.  **Checksum Calculation:** A checksum (default: SHA256) is calculated based on:
+    * The content of the specified `dockerfile`.
+    * The normalized content of the `build-args` input string.
+    * The runner's User ID (`BUILD_UID`) on non-Windows platforms.
+    * The relative paths and content of **all** files within the derived build `context` directory (excluding `.git/**`). **Note:** This does *not* currently respect `.dockerignore`. Changes to ignored files will still invalidate the cache.
+2.  **Image Tag:** The checksum is used to create a tag in the format `<hash-algorithm>-<checksum>`.
+3.  **Pull Attempt (`pull: true`):** The action attempts to pull `<image-name>:<checksum-tag>` from the registry specified in `image-name`. If successful, it's a cache hit.
+4.  **Build (`skip-build-on-pull-hit: false` or Cache Miss):** If the pull fails (cache miss) or skipping is disabled, `docker build` is executed, tagging the new image with the `<image-name>:<checksum-tag>`. The action also applies a local convenience tag `<image-name>:latest`.
+5.  **Push (`push: true`):** If the image was *built* (cache miss) *and* the workflow was triggered by a push (not `pull_request`) *and* the branch is `main`, starts with `rel-`, or is `snnn/ci`, the newly built `<image-name>:<checksum-tag>` is pushed to the registry.
+
+This provides a reasonably robust cache that only updates from specific branches, preventing feature branches from overwriting the cache used by others, while still allowing all builds to benefit from pulling existing cached images.
+
+## Authentication
+
+* **GHCR:** If `login-ghcr` is `true` (which is the default if `image-name` starts with `ghcr.io/`), the action attempts to log in using the workflow's `GITHUB_TOKEN`. Ensure the workflow has `permissions: packages: write`.
+* **ACR:** If `azure-container-registry-name` is provided, the action attempts to log in using `az login --identity` and `az acr login --name <registry-name>`. This requires Azure credentials (like workload identity federation) to be configured for the runner environment. This login happens *before* the build, making it suitable for accessing private ACR base images specified in the `Dockerfile`.
+
+## Usage Example
 
 ```yaml
+name: Build App
+
+on:
+  push:
+    branches: [ main, 'rel-*', 'snnn/ci' ] # Trigger on branches allowed to push cache
+  pull_request:
+    branches: [ main ] # Trigger on PRs targeting main
+  workflow_dispatch:
+
+# Grant permissions needed for logins and potentially push
+permissions:
+  contents: read
+  packages: write # Needed for login-ghcr: true and push: true to GHCR
+  id-token: write # Required for Azure Workload Identity Federation (if using az login)
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build_docker:
+    name: Build App Docker Image
+    runs-on: ubuntu-latest # Or windows-latest
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Build Docker Image
-        uses: ./.github/actions/build-docker-image  # Path to your action directory
+      # Optional: Needed if using Azure login for base images or target registry
+      # - name: Set up Azure login
+      #   uses: azure/login@v1
+      #   with:
+      #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Setup Node.js to build the action itself (if testing local changes)
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
         with:
-          Dockerfile: ${{ github.workspace }}/path/to/Dockerfile
-          DockerBuildArgs: "--build-arg ARG1=value1 --build-arg ARG2=value2"
-          Repository: my-docker-image
+          node-version: '20'
+          cache: 'npm'
+      - name: Install Action Dependencies
+        run: npm ci # In the root of the actions repo
+      - name: Build Actions
+        run: npm run build # In the root of the actions repo
 
-# Caching
+      # Run the build-docker-image action
+      - name: Build Docker Image w/ Cache
+        id: docker_build # Give step an ID to access outputs
+        uses: ./actions/build-docker-image # Use local path during development/CI
+        with:
+          dockerfile: src/app/Dockerfile # Path to your Dockerfile
+          image-name: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}/my-app # Base name for GHCR
+          build-args: "VERSION=${{ github.sha }} BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          push: true # Allow pushing from allowed branches if build occurs
+          pull: true # Attempt to pull cache first
+          login-ghcr: true # Login to GHCR
+          # azure-container-registry-name: 'myacrnaforkbaseimages' # Optional: If base image is from ACR
+          skip-build-on-pull-hit: true
 
-This action supports caching using an Azure Container Registry (ACR) named `onnxruntimebuildcache`. Caching is automatically enabled unless the workflow is triggered by a pull request originating from a fork. This helps to speed up builds by reusing previously built layers.
+      - name: Test Built Image (if build happened or cache hit)
+        # Use outcome check OR cache-hit output
+        if: steps.docker_build.outcome == 'success'
+        run: |
+          echo "Cache hit: ${{ steps.docker_build.outputs.cache-hit }}"
+          echo "Image tag: ${{ steps.docker_build.outputs.image-tag }}"
+          echo "Using image: ${{ steps.docker_build.outputs.full-image-name }}"
+          # Example: Run a command in the container
+          docker run --rm ${{ steps.docker_build.outputs.full-image-name }} --version
 
-## Caching Behavior:
-
-*Enabled*: If caching is enabled (not a fork PR), the action will:
-    1.  Log in to Azure using a managed identity (`az login --identity --output none`). The output of the login command is suppressed for security.
-    2.  Log in to the ACR (`az acr login -n onnxruntimebuildcache`).
-    3.  Use `docker buildx build --load` with `--cache-from` to utilize the cache from the ACR. Build arguments like `BUILDKIT_INLINE_CACHE=1` are automatically included.
-    4.  If the workflow is triggered by a push to the `main` branch, the built image will be pushed to the ACR (`docker push`).
-    5.  Log out from docker registry via `docker logout`.
-
--   **Disabled:** If caching is disabled (a fork PR), the action will:
-    1.  Perform a regular `docker build` (without `buildx` or caching arguments).
-    2.  Not push the image to ACR.
-    3.  Skip Azure login and logout.
-
-## Build Instructions (for developers of this action)
-
-This action is written in JavaScript and requires Node.js (version 20.x) and npm to be installed. To build the action for distribution:
-
-1.  **Install Dependencies:** Run `npm install` in the action's directory to install the necessary dependencies:
-
-    ```bash
-    npm install
-    ```
-
-    Dependencies include:
-    *   `@actions/core`
-    *   `@actions/exec`
-    *   `@actions/github`
-    *   `@vercel/ncc`
-
-2.  **Build:** Run the following command to compile the action:
-
-    ```bash
-    ncc build index.js -o dist
-    ```
-
-    This command uses the `@vercel/ncc` compiler to bundle the code (`index.js`) and all its dependencies into a single file (`dist/index.js`). This single file is what GitHub Actions will execute, improving startup performance and reducing the risk of missing dependencies. The `-o dist` flag specifies that the output should be placed in the `dist` directory.
-
-3.  **Commit `dist/index.js`:** The `dist/index.js` file must be committed to the repository. GitHub Actions uses this compiled file to run the action. Please note the `dist` directory is added to `.gitignore`.
+      - name: Use Simpler :latest Tag Locally (if build happened or cache hit)
+        # This uses the local tag created by the action if a build occurred
+        if: steps.docker_build.outputs.cache-hit == 'false' && steps.docker_build.outcome == 'success'
+        run: |
+          echo "Running container using simpler :latest tag..."
+          docker run --rm ghcr.io/${{ github.repository_owner }}/${{ github.repository }}/my-app:latest echo "Hello from :latest tag"
+```
