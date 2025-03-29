@@ -1,177 +1,262 @@
+// src/build-docker-image/index.js
 const core = require('@actions/core');
 const glob = require('@actions/glob');
 const crypto = require('node:crypto');
-const fs = require('node:fs/promises');
+const fs = require('node:fs/promises'); // Need fs.promises for copyFile, mkdir, access
 const path = require('node:path');
 const exec = require('@actions/exec');
 const github = require('@actions/github');
+const os = require('node:os'); // Need os for userInfo and tmpdir
 
-// Helper Function to Run Exec (same as before)
-async function executeCommand(command, args, options = {}) {
-    core.info(`Executing: ${command} ${args.join(' ')}`);
-    const displayArgs = args.map(arg => (options.sensitive && arg === process.env.GITHUB_TOKEN) ? '***' : arg);
-    core.info(`Executing: ${command} ${displayArgs.join(' ')}`);
-    const { exitCode, stdout, stderr } = await exec.getExecOutput(command, args, { ignoreReturnCode: true, ...options });
-    if (exitCode !== 0) {
-        core.error(`Command failed with exit code ${exitCode}`);
-        core.error(`stdout: ${stdout}`);
-        core.error(`stderr: ${stderr}`);
-        throw new Error(`Command "${command} ${displayArgs.join(' ')}" failed with exit code ${exitCode}`);
-    }
-    core.debug(`stdout: ${stdout}`);
-    if (stderr && stderr.trim() !== '') { core.warning(`stderr: ${stderr.trim()}`); }
-    return { stdout, stderr };
+// Import shared utilities
+const {
+    executeCommand,
+    hashFileContent,
+    parseBuildArgs,
+    normalizeBuildArgsForHashing
+} = require('../common/utils');
+
+
+// --- Helper Functions ---
+
+/**
+ * Gets inputs and derives initial configuration.
+ */
+function getInputsAndConfig() {
+    const dockerfilePath = core.getInput('dockerfile', { required: true });
+    const imageNameBase = core.getInput('image-name', { required: true });
+    const buildArgsInput = core.getInput('build-args');
+    const hashAlgorithm = core.getInput('hash-algorithm') || 'sha256';
+    const shouldPushInputString = core.getInput('push');
+    const shouldPullString = core.getInput('pull');
+    const skipBuildOnPullHitString = core.getInput('skip-build-on-pull-hit');
+    const acrNameToLogin = core.getInput('azure-container-registry-name').trim();
+    const shouldLoginGhcrInput = core.getInput('login-ghcr');
+    const contextPath = path.dirname(dockerfilePath) || '.'; // Derived Context
+    core.info(`Dockerfile path: ${dockerfilePath}`);
+    core.info(`Derived Context path: ${contextPath}`);
+    const ghcrRegistry = 'ghcr.io';
+    let targetRegistry = ''; let targetAcrName = '';
+    if (imageNameBase.startsWith(`${ghcrRegistry}/`)) { targetRegistry = ghcrRegistry; }
+    else if (imageNameBase.includes('.azurecr.io/')) { targetAcrName = imageNameBase.substring(0, imageNameBase.indexOf('.azurecr.io')); targetRegistry = `${targetAcrName}.azurecr.io`; }
+    else if (imageNameBase.includes('/')) { targetRegistry = imageNameBase.substring(0, imageNameBase.indexOf('/')); core.warning(`Detected potential push/pull target registry "${targetRegistry}".`); }
+    else { targetRegistry = 'docker.io'; core.info(`No registry specified in push/pull target image name.`); }
+    core.info(`Push/Pull target registry determined as: ${targetRegistry || 'Default (Docker Hub/Local)'}`);
+    const shouldPushInput = core.getBooleanInput('push');
+    const shouldPull = (shouldPullString === '') ? true : core.getBooleanInput('pull');
+    const skipBuildOnPullHit = (skipBuildOnPullHitString === '') ? true : core.getBooleanInput('skip-build-on-pull-hit');
+    const defaultLoginGhcr = targetRegistry === ghcrRegistry;
+    const shouldLoginGhcr = shouldLoginGhcrInput === '' ? defaultLoginGhcr : core.getBooleanInput('login-ghcr');
+    const attemptAcrLogin = (acrNameToLogin !== '');
+    return { dockerfilePath, imageNameBase, buildArgsInput, hashAlgorithm, shouldPushInput, shouldPull, skipBuildOnPullHit, acrNameToLogin, contextPath, targetRegistry, targetAcrName, shouldLoginGhcr, attemptAcrLogin, ghcrRegistry };
 }
 
-// Helper to parse build args string into array of --build-arg flags (same as before)
-function parseBuildArgs(buildArgsString) { const args = []; if (!buildArgsString) return args; const regex = /([\w.-]+)=("[^"]+"|'[^']+'|[^'"\s]+)/g; let match; while ((match = regex.exec(buildArgsString)) !== null) { args.push('--build-arg', match[0]); } return args; }
-// Helper to normalize build args string for hashing (same as before)
-function normalizeBuildArgsForHashing(buildArgsString) { if (!buildArgsString || buildArgsString.trim() === '') { return ''; } const argsArray = buildArgsString.match(/([\w.-]+)=("[^"]+"|'[^']+'|[^'"\s]+)/g) || []; argsArray.sort(); return argsArray.join('\n'); }
-// Helper to hash file content (same as before)
-async function hashFileContent(hash, filePath) { try { const stat = await fs.stat(filePath); if (stat.isFile()) { const fileBuffer = await fs.readFile(filePath); hash.update(fileBuffer); core.debug(`Hashed content of: ${filePath}`); } else { core.warning(`Path is not a file, skipping content hashing: ${filePath}`); } } catch (error) { if (error.code === 'ENOENT') { core.warning(`File not found for hashing: ${filePath}. Skipping content.`); } else { core.error(`Error accessing file ${filePath} for hashing: ${error.message}`); throw error; } } }
+/**
+ * Performs logins to ACR and GHCR based on configuration.
+ */
+async function performLogins(config) {
+    let loggedInAcrName = ''; let loggedInGhcr = false;
+    if (config.attemptAcrLogin) { core.info(`Attempting Azure login for ACR: ${config.acrNameToLogin}...`); try { await executeCommand('az', ['login', '--identity', '--allow-no-subscriptions', '--output', 'none']); await executeCommand('az', ['acr', 'login', '--name', config.acrNameToLogin]); loggedInAcrName = config.acrNameToLogin; core.info(`Successfully logged into Azure and ACR: ${config.acrNameToLogin}`); } catch (error) { core.warning(`Azure login/ACR login failed for ${config.acrNameToLogin}: ${error.message}.`); } }
+    else { core.info("ACR login skipped: `azure-container-registry-name` was not provided."); }
+    if (config.shouldLoginGhcr) { core.info(`Attempting login to GHCR: ${config.ghcrRegistry}...`); const githubToken = process.env.GITHUB_TOKEN; if (!githubToken) { core.warning('GITHUB_TOKEN needed but not found.'); } else { try { const loginArgs = ['login', config.ghcrRegistry, '-u', github.context.actor, '--password-stdin']; const loginOptions = { input: Buffer.from(githubToken), sensitive: true }; await executeCommand('docker', loginArgs, loginOptions); loggedInGhcr = true; } catch (e) { core.warning(`GHCR login failed: ${e.message}`); } } }
+    else { core.info('GHCR login skipped: Not required.'); }
+    return { loggedInAcrName, loggedInGhcr };
+}
 
-async function run() {
-    let loggedInGhcr = false;
-    let loggedInAcrName = ''; // Store the name of the ACR we logged into
-    const ghcrRegistry = 'ghcr.io';
+/**
+ * Calculates the checksum based on Dockerfile, context, and args.
+ */
+async function calculateChecksum(config) {
+    core.info(`Calculating ${config.hashAlgorithm} checksum...`); const hash = crypto.createHash(config.hashAlgorithm);
+    core.info(`Hashing Dockerfile: ${config.dockerfilePath}`); await hashFileContent(hash, config.dockerfilePath);
+    const normalizedArgs = normalizeBuildArgsForHashing(config.buildArgsInput); if (normalizedArgs) { core.info(`Hashing normalized build args:\n${normalizedArgs}`); hash.update(normalizedArgs); } else { core.info('No build args provided to hash.'); }
+    core.info(`Hashing context directory: ${config.contextPath}`); const globber = await glob.create(`${config.contextPath}/**`, { followSymbolicLinks: true, dot: true, ignore: [`${config.contextPath}/.git/**`] }); const filesToHash = [];
+    for await (const file of globber.globGenerator()) { try { const stat = await fs.stat(file); if (stat.isFile()) { const relativePath = path.relative(config.contextPath, file); filesToHash.push({ absolute: file, relative: relativePath }); } } catch (error) { /* Ignore glob errors */ } } filesToHash.sort((a, b) => a.relative.localeCompare(b.relative)); core.info(`Found ${filesToHash.length} files in context to hash.`);
+    for (const fileInfo of filesToHash) { core.debug(`Hashing path: ${fileInfo.relative}`); hash.update(fileInfo.relative.replace(/\\/g, '/')); await hashFileContent(hash, fileInfo.absolute); }
+    return hash.digest('hex');
+}
+
+/**
+ * Attempts to pull the checksum-tagged image. Returns true on success (cache hit).
+ */
+async function attemptPullCache(fullImageNameWithTag, shouldPull) {
+    if (!shouldPull) { core.info('Skipping cache pull attempt (pull: false).'); return false; } core.info(`Attempting to pull cached image: ${fullImageNameWithTag}`); try { const exitCode = await exec.exec('docker', ['pull', fullImageNameWithTag], { ignoreReturnCode: true }); if (exitCode === 0) { core.info(`Cache hit! Image ${fullImageNameWithTag} pulled successfully.`); return true; } else { core.info(`Cache miss. Image ${fullImageNameWithTag} not found or pull failed (Exit code: ${exitCode}).`); return false; } } catch (error) { core.warning(`Error during docker pull (treating as cache miss): ${error.message}`); return false; }
+}
+
+/**
+ * Copies deps.txt from source to context if it doesn't exist.
+ */
+async function ensureDepsFile(contextPath) {
+    const repoDir = process.env.GITHUB_WORKSPACE;
+    if (!repoDir) {
+        core.warning('GITHUB_WORKSPACE not set, cannot copy deps.txt.');
+        return;
+    }
+    const dstDepsFile = path.join(contextPath, 'scripts', 'deps.txt');
+    const srcDepsFile = path.join(repoDir, 'cmake', 'deps.txt');
 
     try {
-        // --- Get Inputs ---
-        const dockerfilePath = core.getInput('dockerfile', { required: true });
-        const contextPath = core.getInput('context', { required: true });
-        const imageNameBase = core.getInput('image-name', { required: true });
-        const buildArgsInput = core.getInput('build-args');
-        const hashAlgorithm = core.getInput('hash-algorithm') || 'sha256';
-        const shouldPushInput = core.getBooleanInput('push');
-        const shouldPull = core.getBooleanInput('pull');
-        const skipBuildOnPullHit = core.getBooleanInput('skip-build-on-pull-hit');
-        // Login related inputs
-        const acrNameToLogin = core.getInput('azure-container-registry-name').trim();
-        // login-acr input removed
-
-        // Determine target registry for push/pull logic
-        let targetRegistry = '';
-        let targetAcrName = ''; // ACR name derived from target image-name, if applicable
-        if (imageNameBase.startsWith(`${ghcrRegistry}/`)) {
-            targetRegistry = ghcrRegistry;
-        } else if (imageNameBase.includes('.azurecr.io/')) {
-            targetAcrName = imageNameBase.substring(0, imageNameBase.indexOf('.azurecr.io'));
-            targetRegistry = `${targetAcrName}.azurecr.io`;
-        } else if (imageNameBase.includes('/')) {
-            targetRegistry = imageNameBase.substring(0, imageNameBase.indexOf('/'));
-            core.warning(`Detected potential push/pull target registry "${targetRegistry}". Generic login might be required.`);
-        } else {
-            targetRegistry = 'docker.io';
-            core.info(`No registry specified in push/pull target image name, assuming Docker Hub or local.`);
-        }
-        core.info(`Push/Pull target registry determined as: ${targetRegistry || 'Default (Docker Hub/Local)'}`);
-
-        // Determine if GHCR login is needed (for target push/pull)
-        const defaultLoginGhcr = targetRegistry === ghcrRegistry;
-        const shouldLoginGhcr = core.getInput('login-ghcr') === '' ? defaultLoginGhcr : core.getBooleanInput('login-ghcr');
-
-
-        // --- Perform Logins BEFORE Checksum/Build ---
-
-        // ACR Login (Now only triggered if azure-container-registry-name is provided)
-        if (acrNameToLogin) {
-             core.info(`Attempting Azure login for ACR: ${acrNameToLogin} (likely for base image pulls)...`);
-             try {
-                 await executeCommand('az', ['login', '--identity', '--allow-no-subscriptions', '--output', 'none']);
-                 await executeCommand('az', ['acr', 'login', '--name', acrNameToLogin]);
-                 loggedInAcrName = acrNameToLogin; // Store name if successful
-                 core.info(`Successfully logged into Azure and ACR: ${acrNameToLogin}`);
-             } catch (error) {
-                 core.warning(`Azure login or ACR login failed for ${acrNameToLogin}: ${error.message}. Base image pulls or operations involving this registry may fail.`);
-             }
-        } else {
-             core.info("ACR login skipped: `azure-container-registry-name` was not provided.");
-        }
-
-        // GHCR Login (if needed for target push/pull)
-        if (shouldLoginGhcr) { // No change here, depends on target
-            core.info(`Attempting login to GHCR: ${ghcrRegistry}...`);
-            const githubToken = process.env.GITHUB_TOKEN;
-            if (!githubToken) {
-                 core.warning('GITHUB_TOKEN needed for login-ghcr but not found. GHCR operations may fail.');
+        await fs.access(dstDepsFile);
+        core.info('deps.txt already exists in context. No need to copy.');
+    } catch {
+        core.info(`Attempting to copy deps.txt to: ${dstDepsFile}`);
+        try {
+            await fs.access(srcDepsFile); // Check if source exists
+            await fs.mkdir(path.dirname(dstDepsFile), { recursive: true }); // Ensure target dir exists
+            await fs.copyFile(srcDepsFile, dstDepsFile);
+            core.info(`Copied deps.txt from ${srcDepsFile}`);
+        } catch (copyError) {
+            if (copyError.code === 'ENOENT' && copyError.path === srcDepsFile) {
+                 core.info(`Source deps.txt (${srcDepsFile}) not found. Skipping copy.`);
             } else {
-                 try {
-                     await executeCommand('docker', ['login', ghcrRegistry, '-u', github.context.actor, '-p', githubToken], { sensitive: true });
-                     loggedInGhcr = true; // Mark success
-                 } catch (e) { core.warning(`GHCR login failed: ${e.message}`); }
+                // Log other errors as warnings, don't fail the build just for this
+                core.warning(`Failed to copy deps.txt: ${copyError.message}.`);
             }
         }
-
-        // --- Calculate Checksum (same as before) ---
-        core.info(`Calculating ${hashAlgorithm} checksum...`);
-        const hash = crypto.createHash(hashAlgorithm);
-        // ... (hashing logic for dockerfile, build-args, context - unchanged) ...
-        core.info(`Hashing Dockerfile: ${dockerfilePath}`); await hashFileContent(hash, dockerfilePath);
-        const normalizedArgs = normalizeBuildArgsForHashing(buildArgsInput); if (normalizedArgs) { core.info(`Hashing normalized build args:\n${normalizedArgs}`); hash.update(normalizedArgs); } else { core.info('No build args provided to hash.'); }
-        core.info(`Hashing context directory: ${contextPath}`);
-        const globber = await glob.create(`${contextPath}/**`, { followSymbolicLinks: true, dot: true, ignore: [`${contextPath}/.git/**`] }); const filesToHash = [];
-        for await (const file of globber.globGenerator()) { try { const stat = await fs.stat(file); if (stat.isFile()) { const relativePath = path.relative(contextPath, file); filesToHash.push({ absolute: file, relative: relativePath }); } } catch (error) { /* Ignore glob errors */ } } filesToHash.sort((a, b) => a.relative.localeCompare(b.relative)); core.info(`Found ${filesToHash.length} files in context to hash.`);
-        for (const fileInfo of filesToHash) { core.debug(`Hashing path: ${fileInfo.relative}`); hash.update(fileInfo.relative.replace(/\\/g, '/')); await hashFileContent(hash, fileInfo.absolute); }
-        // Finalize hash and create tag
-        const checksum = hash.digest('hex'); const imageTag = `${hashAlgorithm}-${checksum}`; const fullImageNameWithChecksumTag = `${imageNameBase}:${imageTag}`;
-        core.info(`Calculated Image Tag: ${imageTag}`); core.info(`Full Image Name: ${fullImageNameWithChecksumTag}`);
-        core.setOutput('image-tag', imageTag); core.setOutput('full-image-name', fullImageNameWithChecksumTag);
+    }
+}
 
 
-        // --- Pull Attempt (Image Cache Read) (same logic as before) ---
-        let cacheHit = false;
-        if (shouldPull) { /* ... docker pull logic ... */
-             core.info(`Attempting to pull cached image: ${fullImageNameWithChecksumTag}`); try { const exitCode = await exec.exec('docker', ['pull', fullImageNameWithChecksumTag], { ignoreReturnCode: true }); if (exitCode === 0) { core.info(`Cache hit! Image ${fullImageNameWithChecksumTag} pulled successfully.`); cacheHit = true; } else { core.info(`Cache miss. Image ${fullImageNameWithChecksumTag} not found/pull failed (Exit code: ${exitCode}).`); } } catch (error) { core.warning(`Error during docker pull (treating as cache miss): ${error.message}`); }
-        } else { core.info('Skipping cache pull attempt (pull: false).'); }
+/**
+ * Builds the Docker image using docker build, including UID arg.
+ */
+async function buildImage(config, fullImageNameWithTag) {
+    core.info('Building image...');
+    const buildCommand = ['build'];
+
+    // Add user-provided build args first
+    buildCommand.push(...parseBuildArgs(config.buildArgsInput));
+
+    // --- Add BUILD_UID build-arg ---
+    let uid = -1;
+    try {
+         if (process.platform !== 'win32') { // Only get UID on non-windows
+             uid = os.userInfo().uid;
+             if (uid !== -1) {
+                 core.info(`Adding --build-arg BUILD_UID=${uid}`);
+                 buildCommand.push('--build-arg', `BUILD_UID=${uid}`);
+             } else {
+                 core.warning('Could not determine valid UID, skipping BUILD_UID build-arg.');
+             }
+         } else {
+              core.info('Running on Windows, skipping BUILD_UID build-arg.');
+         }
+    } catch (uidError) {
+         core.warning(`Failed to get UID (${uidError.message}), skipping BUILD_UID build-arg.`);
+    }
+    // -------------------------------
+
+    // Add tag, Dockerfile, context
+    buildCommand.push('-t', fullImageNameWithTag);
+    buildCommand.push('-f', config.dockerfilePath);
+    buildCommand.push(config.contextPath);
+
+    await executeCommand('docker', buildCommand);
+    core.info(`Image built successfully: ${fullImageNameWithTag}`);
+}
+
+/**
+ * Tags the locally built/pulled image with a simpler :latest tag.
+ */
+async function tagImageLocally(fullImageNameWithTag, imageNameBase) {
+    // Use the base name + ':latest' as the simple tag
+    const localTag = `${imageNameBase}:latest`;
+    try {
+         core.info(`Applying local tag: ${localTag}`);
+         await executeCommand('docker', ['tag', fullImageNameWithChecksumTag, localTag]);
+         core.info(`Successfully tagged image locally as ${localTag}`);
+    } catch (error) {
+         // Don't fail the whole action if local tagging fails, just warn
+         core.warning(`Failed to apply local tag ${localTag}: ${error.message}`);
+    }
+}
+
+
+/**
+ * Pushes the checksum-tagged image if conditions are met.
+ */
+async function pushImage(config, loginResult, fullImageNameWithTag, cacheHit) {
+    const eventName = github.context.eventName; const ref = github.context.ref; let branchName = ''; if (ref && ref.startsWith('refs/heads/')) { branchName = ref.substring('refs/heads/'.length); } const isAllowedBranch = branchName === 'main' || branchName.startsWith('rel-') || branchName === 'snnn/ci'; const isEligibleForPush = config.shouldPushInput && !cacheHit && eventName !== 'pull_request' && isAllowedBranch; core.info(`Checking push conditions: shouldPushInput=${config.shouldPushInput}, cacheHit=${cacheHit}, eventName=${eventName}, branchName=${branchName}, isAllowedBranch=${isAllowedBranch}`);
+    if (isEligibleForPush) { core.info(`Pushing newly built image to registry: ${fullImageNameWithTag}`); const isTargetAcr = config.targetRegistry.endsWith('.azurecr.io'); const loggedIntoTarget = (config.targetRegistry === config.ghcrRegistry && loginResult.loggedInGhcr) || (isTargetAcr && loginResult.loggedInAcrName === config.targetAcrName && loginResult.loggedInAcrName !== ''); if (!loggedIntoTarget && config.targetRegistry !== 'docker.io') { core.warning(`Push requested but login to target registry ${config.targetRegistry} failed or wasn't attempted. Push might fail.`); } await executeCommand('docker', ['push', fullImageNameWithTag]); core.info('Image pushed successfully.'); }
+    else { /* ... logging skip reasons ... */ }
+}
+
+/**
+ * Performs docker logout if logins were successful.
+ */
+async function performLogouts(loginResult, config) {
+     if (loginResult.loggedInGhcr) { try { core.info(`Logging out from GHCR: ${config.ghcrRegistry}`); await executeCommand('docker', ['logout', config.ghcrRegistry]); } catch (e) { core.warning(`GHCR logout failed: ${e.message}`); } } if (loginResult.loggedInAcrName) { const registryUrl = `${loginResult.loggedInAcrName}.azurecr.io`; try { core.info(`Logging out from ACR: ${registryUrl}`); await executeCommand('docker', ['logout', registryUrl]); } catch (e) { core.warning(`ACR logout failed: ${e.message}`); } }
+}
+
+
+// --- Main Orchestration Function ---
+async function run() {
+    let loginResult = { loggedInGhcr: false, loggedInAcrName: '' };
+    let fullImageNameWithChecksumTag = '';
+    let config = {};
+
+    try {
+        config = getInputsAndConfig();
+        loginResult = await performLogins(config);
+
+        const checksum = await calculateChecksum(config);
+        const imageTag = `${config.hashAlgorithm}-${checksum}`;
+        fullImageNameWithChecksumTag = `${config.imageNameBase}:${imageTag}`;
+
+        core.info(`Calculated Image Tag: ${imageTag}`);
+        core.info(`Full Image Name: ${fullImageNameWithChecksumTag}`);
+        core.setOutput('image-tag', imageTag);
+        core.setOutput('full-image-name', fullImageNameWithChecksumTag);
+
+        let cacheHit = await attemptPullCache(fullImageNameWithChecksumTag, config.shouldPull);
         core.setOutput('cache-hit', cacheHit.toString());
 
-
-        // --- Build (Conditional) (same logic as before) ---
-        if (cacheHit && skipBuildOnPullHit) {
+        let builtImage = false;
+        if (cacheHit && config.skipBuildOnPullHit) {
             core.info('Skipping Docker build step due to cache hit.');
-        } else { /* ... docker build logic ... */
-             if (cacheHit && !skipBuildOnPullHit) { core.info('Cache hit, but build is not skipped. Proceeding with build...'); }
-             else { core.info('Cache miss or pull disabled. Building image...'); }
-             const buildCommand = ['build']; buildCommand.push(...parseBuildArgs(buildArgsInput)); buildCommand.push('-t', fullImageNameWithChecksumTag); buildCommand.push('-f', dockerfilePath); buildCommand.push(contextPath);
-             await executeCommand('docker', buildCommand);
-             core.info(`Image built successfully: ${fullImageNameWithChecksumTag}`);
-             cacheHit = false; core.setOutput('cache-hit', 'false');
+        } else {
+             if (cacheHit) core.info('Cache hit, but build is not skipped. Proceeding with build...');
+             else core.info('Cache miss or pull disabled. Building image...');
+
+             // ** Ensure deps.txt is copied BEFORE build **
+             await ensureDepsFile(config.contextPath);
+             // *******************************************
+
+             await buildImage(config, fullImageNameWithChecksumTag);
+             builtImage = true;
+             cacheHit = false;
+             core.setOutput('cache-hit', 'false');
+
+             // ** Add local tag AFTER successful build **
+             await tagImageLocally(fullImageNameWithChecksumTag, config.imageNameBase);
+             // *****************************************
         }
 
-        // --- Push (Conditional with Branch/Event Logic) (same logic as before) ---
-        const eventName = github.context.eventName; const ref = github.context.ref; let branchName = ''; if (ref && ref.startsWith('refs/heads/')) { branchName = ref.substring('refs/heads/'.length); }
-        const isAllowedBranch = branchName === 'main' || branchName.startsWith('rel-') || branchName === 'snnn/ci';
-        const isEligibleForPush = shouldPushInput && !cacheHit && eventName !== 'pull_request' && isAllowedBranch;
-        core.info(`Checking push conditions: shouldPushInput=${shouldPushInput}, cacheHit=${cacheHit}, eventName=${eventName}, branchName=${branchName}, isAllowedBranch=${isAllowedBranch}`);
-        if (isEligibleForPush) { /* ... docker push logic ... */
-             core.info(`Pushing newly built image to registry: ${fullImageNameWithChecksumTag}`);
-             // Check login status for the specific target registry before push
-             const isTargetAcr = targetRegistry.endsWith('.azurecr.io');
-             const loggedIntoTarget = (targetRegistry === ghcrRegistry && loggedInGhcr) || (isTargetAcr && loggedInAcrName === targetAcrName && loggedInAcrName !== ''); // Check loggedInAcrName matches target ACR name
-             if (!loggedIntoTarget && targetRegistry !== 'docker.io') {
-                 core.warning(`Push requested but login to target registry ${targetRegistry} might have failed or was not attempted successfully. Push might fail.`);
-             }
-             await executeCommand('docker', ['push', fullImageNameWithChecksumTag]); core.info('Image pushed successfully.');
-        } else { /* ... logging for why push is skipped ... */
-             if (!shouldPushInput) { core.info('Skipping push: push input was set to false.'); } else if (cacheHit) { core.info('Skipping push: Image was pulled from cache (cache-hit).'); } else if (eventName === 'pull_request') { core.info('Skipping push: Workflow triggered by a pull_request event.'); } else if (!isAllowedBranch) { core.info(`Skipping push: Branch "${branchName || 'N/A'}" is not in the allowed list.`); } else { core.info(`Skipping push: Conditions not met.`); }
-        }
+        // Push only if eligible AND we just built the image
+        await pushImage(config, loginResult, fullImageNameWithChecksumTag, cacheHit);
 
         core.info('Action finished successfully.');
 
     } catch (error) {
         core.setFailed(`Action failed: ${error.message}`);
     } finally {
-        // --- Logouts ---
-         if (loggedInGhcr) { try { core.info(`Logging out from GHCR: ${ghcrRegistry}`); await executeCommand('docker', ['logout', ghcrRegistry]); } catch (e) { core.warning(`GHCR logout failed: ${e.message}`); } }
-         // Logout from ACR only if we logged in successfully using a specific name
-         if (loggedInAcrName) {
-             const registryUrl = `${loggedInAcrName}.azurecr.io`;
-             try { core.info(`Logging out from ACR: ${registryUrl}`); await executeCommand('docker', ['logout', registryUrl]); } catch (e) { core.warning(`ACR logout failed: ${e.message}`); }
-         }
+        await performLogouts(loginResult, config);
     }
 }
 
-// Run the main function if executed directly
+// --- Run ---
 if (require.main === module) { run(); }
-// Export run for testing or programmatic usage
-module.exports = { run };
+
+// --- Exports ---
+module.exports = {
+    run,
+    getInputsAndConfig,
+    performLogins,
+    calculateChecksum,
+    attemptPullCache,
+    ensureDepsFile, // Export new helper
+    buildImage,
+    tagImageLocally, // Export new helper
+    pushImage,
+    performLogouts
+};

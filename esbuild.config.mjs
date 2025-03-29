@@ -1,3 +1,6 @@
+// c:\src\onnxruntime-github-actions\esbuild.config.mjs
+// Updated: 2025-03-28 - Added skip for 'common' directory
+
 import * as esbuild from 'esbuild';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -10,11 +13,13 @@ const buildDir = path.join(__dirname, 'build'); // Build output directory
 
 // Shared esbuild options
 const sharedEsbuildOptions = {
-  bundle: true,       // Bundle dependencies
-  platform: 'node',   // Target Node.js environment
-  target: 'node20',   // Target Node.js version (must match action.yml)
-  minify: true,       // Minify output code
-  sourcemap: true    // Generate source maps for debugging
+  bundle: true,        // Bundle dependencies
+  platform: 'node',    // Target Node.js environment
+  target: 'node20',    // Target Node.js version (must match action.yml)
+  minify: true,        // Minify output code
+  sourcemap: 'linked'  // Generate linked source maps for debugging
+  // Consider adding external: ['@actions/*'] if you want to rely on runner's modules,
+  // but bundling is usually safer for distribution. Default behavior bundles them.
 };
 
 async function build() {
@@ -24,24 +29,42 @@ async function build() {
     await fs.rm(buildDir, { recursive: true, force: true });
     await fs.mkdir(buildDir, { recursive: true });
 
-    // Find all action source directories in src/
+    // Find all potential action source directories in src/
     const actionSources = await fs.readdir(srcDir, { withFileTypes: true });
 
-    // Process each action directory
+    // Process each potential action directory
     for (const dirent of actionSources) {
       if (dirent.isDirectory()) {
         const actionName = dirent.name;
+
+        // --- Skip the common directory ---
+        if (actionName === 'common') {
+          console.log(`Skipping common directory: ${actionName}`);
+          continue; // Move to the next directory entry
+        }
+        // --------------------------------
+
         const entryPoint = path.join(srcDir, actionName, 'index.js');
         const actionYmlSrc = path.join(actionsDir, actionName, 'action.yml');
-        const outDir = path.join(buildDir, actionName); // Output like build/action-name/
-        const distDir = path.join(outDir, 'dist');     // Subdir for JS output
-        const outFile = path.join(distDir, 'index.js'); // Final JS file path
-        const actionYmlDest = path.join(outDir, 'action.yml'); // Final action.yml path
+        // Output structure: build/action-name/action.yml and build/action-name/dist/index.js
+        const outDir = path.join(buildDir, actionName);
+        const distDir = path.join(outDir, 'dist');
+        const outFile = path.join(distDir, 'index.js');
+        const actionYmlDest = path.join(outDir, 'action.yml');
 
         console.log(`Building action: ${actionName}`);
 
         // Ensure output directories exist
         await fs.mkdir(distDir, { recursive: true });
+
+        // Check if entry point exists before trying to build
+        try {
+            await fs.access(entryPoint);
+        } catch (err) {
+            console.warn(`  -> WARNING: Entry point not found at ${entryPoint}. Skipping build for ${actionName}.`);
+            continue; // Skip if index.js doesn't exist
+        }
+
 
         // Run esbuild to bundle JavaScript
         await esbuild.build({
@@ -53,12 +76,12 @@ async function build() {
 
         // Copy the corresponding action.yml
         try {
-           await fs.copyFile(actionYmlSrc, actionYmlDest);
-           console.log(`  -> Copied action.yml to ${actionYmlDest}`);
+            await fs.copyFile(actionYmlSrc, actionYmlDest);
+            console.log(`  -> Copied action.yml to ${actionYmlDest}`);
         } catch (copyError) {
-           console.error(`  -> ERROR copying action.yml for ${actionName} from ${actionYmlSrc}: ${copyError}`);
-           // Decide if build should fail if action.yml is missing
-           throw copyError;
+            // Log error but maybe don't fail the whole build? Or fail? Let's fail for now.
+            console.error(`  -> ERROR copying action.yml for ${actionName} from ${actionYmlSrc}: ${copyError.message}`);
+            throw copyError;
         }
       }
     }

@@ -1,12 +1,9 @@
 name: 'Build Docker Image'
-description: 'Builds a Docker image, supports ACR login (if ACR name provided) for base images, uses checksum tag for image-level caching (pull/push) to a registry.' # Updated description
+description: 'Builds a Docker image using the directory containing the Dockerfile as context. Supports ACR login for base images and uses a checksum tag for image-level caching (pull/push) to a registry.' # Updated description
 
 inputs:
   dockerfile:
-    description: 'Required. Path to the Dockerfile (relative to repository root).'
-    required: true
-  context:
-    description: 'Required. Path to the Docker build context directory (relative to repository root).'
+    description: 'Required. Path to the Dockerfile (relative to repository root). The directory containing this file will be used as the build context.' # Updated description
     required: true
   image-name:
     description: 'Required. Base image name for tagging and potential push/pull cache (e.g., ghcr.io/owner/repo/img, myacr.azurecr.io/img). Checksum tag will be added.'
