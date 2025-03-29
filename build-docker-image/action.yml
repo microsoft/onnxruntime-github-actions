@@ -24,11 +24,9 @@ inputs:
     description: 'Optional. Attempt to pull the checksum-tagged image before building to check for cache hit.'
     required: false
     default: 'true'
-  # --- Login Inputs ---
   login-ghcr:
     description: 'Optional. Attempt login to ghcr.io using GITHUB_TOKEN. Defaults to true if image-name starts with `ghcr.io`.'
     required: false
-    # Default handled dynamically
   azure-container-registry-name:
     description: 'Optional. If provided, the action will attempt `az login --identity` and `az acr login` with this name *before* the build starts (useful for base image pulls from ACR).'
     required: false
