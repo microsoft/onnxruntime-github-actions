@@ -12,10 +12,6 @@ inputs:
     description: 'Optional. String of build arguments to pass to `docker build` (e.g., "ARG1=VAL1 ARG2=VAL2") AND include in checksum.'
     required: false
     default: ''
-  hash-algorithm:
-    description: 'Optional. Hash algorithm (e.g., sha256, sha512).'
-    required: false
-    default: 'sha256'
   push:
     description: 'Optional. Push the checksum-tagged image if built (cache miss) AND if on an allowed branch (main, rel-*, snnn/ci) and not a PR.'
     required: false
