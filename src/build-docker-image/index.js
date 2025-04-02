@@ -143,7 +143,8 @@ async function calculateChecksum(hashAlgorithm, dockerfilePath, buildArgsInput, 
 
   // --- 4. Hash Context Directory Files ---
   core.info(`Hashing context directory: ${contextPath}`); // Use parameter
-  const globber = await glob.create(`${contextPath}/**`, { // Use parameter
+  const globber = await glob.create(`${contextPath}/**`, {
+    // Use parameter
     followSymbolicLinks: true,
     dot: true,
     ignore: [`${contextPath}/.git/**`], // Use parameter
@@ -358,7 +359,7 @@ async function run() {
     loginResult = await performLogins(config);
 
     // Pass UID to calculateChecksum
-    
+
     const checksum = await calculateChecksum(
       config.hashAlgorithm,
       config.dockerfilePath,

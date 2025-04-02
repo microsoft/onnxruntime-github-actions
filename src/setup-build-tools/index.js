@@ -7,13 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 
 // Import shared utilities
-const {
-  executeCommand,
-  verifySHA512,
-  getPlatformIdentifier,
-  getArchIdentifier
-} = require('../common/utils'); // Adjust path if necessary
-
+const { executeCommand, verifySHA512, getPlatformIdentifier, getArchIdentifier } = require('../common/utils'); // Adjust path if necessary
 
 // --- CMake Specific Helper ---
 async function getLatestCMakeVersion(githubToken) {
@@ -55,29 +49,43 @@ async function downloadVcpkgZip(version, hash, terrapinPath, disableTerrapin) {
     downloadedZipPath = path.join(runnerTempDir, `vcpkg-${version}.zip`); // More specific name
     core.info(`Terrapin will download vcpkg to: ${downloadedZipPath}`);
     const terrapinBaseUrl = 'https://vcpkg.storage.devpackages.microsoft.io/artifacts/';
-    const terrapinArgs = [ '-b', terrapinBaseUrl, '-a', 'true', '-u', 'Environment', '-p', downloadUrl, '-s', hash, '-d', downloadedZipPath ];
+    const terrapinArgs = [
+      '-b',
+      terrapinBaseUrl,
+      '-a',
+      'true',
+      '-u',
+      'Environment',
+      '-p',
+      downloadUrl,
+      '-s',
+      hash,
+      '-d',
+      downloadedZipPath,
+    ];
     await core.group('Downloading vcpkg via Terrapin Tool', async () => {
-        // Quote path in case it contains spaces
-        await executeCommand(`"${terrapinPath}"`, terrapinArgs);
+      // Quote path in case it contains spaces
+      await executeCommand(`"${terrapinPath}"`, terrapinArgs);
     });
     core.info(`Download vcpkg via Terrapin completed.`);
-
   } else {
     // Log reason for not using Terrapin
     if (terrapinPath && !fs.existsSync(terrapinPath)) {
-        core.warning(`Terrapin tool path provided but not found at '${terrapinPath}'. Attempting direct download for vcpkg.`);
-     } else if (disableTerrapin) {
-         core.info('Terrapin usage disabled. Attempting direct download for vcpkg.');
-     } else {
-        core.info('Terrapin tool path not provided or unavailable. Attempting direct download for vcpkg.');
-     }
+      core.warning(
+        `Terrapin tool path provided but not found at '${terrapinPath}'. Attempting direct download for vcpkg.`
+      );
+    } else if (disableTerrapin) {
+      core.info('Terrapin usage disabled. Attempting direct download for vcpkg.');
+    } else {
+      core.info('Terrapin tool path not provided or unavailable. Attempting direct download for vcpkg.');
+    }
     // Direct download
     downloadedZipPath = await tc.downloadTool(downloadUrl);
     core.info(`Direct download for vcpkg completed. Archive at: ${downloadedZipPath}`);
   }
   // Verify download happened
   if (!fs.existsSync(downloadedZipPath)) {
-     throw new Error(`vcpkg download failed: Expected file not found at ${downloadedZipPath}.`);
+    throw new Error(`vcpkg download failed: Expected file not found at ${downloadedZipPath}.`);
   }
   return downloadedZipPath;
 }
@@ -95,10 +103,18 @@ function findActualVcpkgDir(tempExtractPath, vcpkgVersion) {
     core.info(`Found extracted vcpkg directory: ${primaryExpectedDir}`);
     return primaryExpectedDir;
   }
-  core.warning(`Expected vcpkg folder pattern 'vcpkg-${vcpkgVersion}' not found directly in ${tempExtractPath}. Searching...`);
+  core.warning(
+    `Expected vcpkg folder pattern 'vcpkg-${vcpkgVersion}' not found directly in ${tempExtractPath}. Searching...`
+  );
 
   const files = fs.readdirSync(tempExtractPath);
-  const directories = files.filter((f) => { try { return fs.statSync(path.join(tempExtractPath, f)).isDirectory(); } catch { return false; } });
+  const directories = files.filter((f) => {
+    try {
+      return fs.statSync(path.join(tempExtractPath, f)).isDirectory();
+    } catch {
+      return false;
+    }
+  });
 
   if (directories.length === 1) {
     const nestedPath = path.join(tempExtractPath, directories[0]);
@@ -106,17 +122,19 @@ function findActualVcpkgDir(tempExtractPath, vcpkgVersion) {
     return nestedPath;
   }
 
-   // Fallback 2: Check if tag had 'v' prefix but directory doesn't (less common for vcpkg tags)
-   if (vcpkgVersion.startsWith('v')) {
-     const fallbackVersion = vcpkgVersion.substring(1);
-     const fallbackPath = path.join(tempExtractPath, `vcpkg-${fallbackVersion}`);
-     if (fs.existsSync(fallbackPath) && fs.statSync(fallbackPath).isDirectory()) {
-       core.warning(`Found extracted vcpkg dir matching tag without 'v' prefix: ${fallbackPath}`);
-       return fallbackPath;
-     }
-   }
+  // Fallback 2: Check if tag had 'v' prefix but directory doesn't (less common for vcpkg tags)
+  if (vcpkgVersion.startsWith('v')) {
+    const fallbackVersion = vcpkgVersion.substring(1);
+    const fallbackPath = path.join(tempExtractPath, `vcpkg-${fallbackVersion}`);
+    if (fs.existsSync(fallbackPath) && fs.statSync(fallbackPath).isDirectory()) {
+      core.warning(`Found extracted vcpkg dir matching tag without 'v' prefix: ${fallbackPath}`);
+      return fallbackPath;
+    }
+  }
 
-  throw new Error(`Could not reliably find the extracted vcpkg directory inside ${tempExtractPath}. Found directories: ${directories.join(', ')}`);
+  throw new Error(
+    `Could not reliably find the extracted vcpkg directory inside ${tempExtractPath}. Found directories: ${directories.join(', ')}`
+  );
 }
 
 async function bootstrapVcpkg(extractedPath) {
@@ -187,8 +205,8 @@ async function run() {
     // Resolve CMake Version
     let resolvedCmakeVersion = cmakeVersionInput;
     if (cmakeVersionInput.toLowerCase() === 'latest') {
-        core.info('Resolving "latest" CMake version via GitHub API...');
-        resolvedCmakeVersion = await getLatestCMakeVersion(githubToken);
+      core.info('Resolving "latest" CMake version via GitHub API...');
+      resolvedCmakeVersion = await getLatestCMakeVersion(githubToken);
     }
     core.info(`Setting up CMake version: ${resolvedCmakeVersion} for ${platform}-${arch}`);
 
@@ -210,9 +228,11 @@ async function run() {
       core.info(`CMake Download URL: ${cmakeDownloadUrl}`);
 
       // Determine CMake Download Method
-      const cmakeCanUseTerrapin = platform === 'windows' && cmakeHasHash && !disableTerrapin && fs.existsSync(terrapinPath);
+      const cmakeCanUseTerrapin =
+        platform === 'windows' && cmakeHasHash && !disableTerrapin && fs.existsSync(terrapinPath);
       core.info(`Attempting CMake download via ${cmakeCanUseTerrapin ? 'Terrapin' : 'direct download'}`);
-      if (!cmakeHasHash && !cmakeCanUseTerrapin) { // Warn only if direct downloading without hash
+      if (!cmakeHasHash && !cmakeCanUseTerrapin) {
+        // Warn only if direct downloading without hash
         core.warning('CMake SECURITY RISK: `cmake-hash` not provided. Integrity will NOT be verified.');
       }
 
@@ -220,18 +240,32 @@ async function run() {
       const cmakeTempDownloadPath = path.join(runnerTempDir, cmakeArchiveFileName);
       if (cmakeCanUseTerrapin) {
         const terrapinBaseUrl = 'https://vcpkg.storage.devpackages.microsoft.io/artifacts/';
-        const terrapinArgs = [ '-b', terrapinBaseUrl, '-a', 'true', '-u', 'Environment', '-p', cmakeDownloadUrl, '-s', cmakeHash, '-d', cmakeTempDownloadPath ];
+        const terrapinArgs = [
+          '-b',
+          terrapinBaseUrl,
+          '-a',
+          'true',
+          '-u',
+          'Environment',
+          '-p',
+          cmakeDownloadUrl,
+          '-s',
+          cmakeHash,
+          '-d',
+          cmakeTempDownloadPath,
+        ];
         await core.group('Downloading CMake via Terrapin Tool', async () => {
-             await executeCommand(`"${terrapinPath}"`, terrapinArgs);
+          await executeCommand(`"${terrapinPath}"`, terrapinArgs);
         });
         cmakeDownloadedArchivePath = cmakeTempDownloadPath; // Track for cleanup
       } else {
         await core.group('Downloading CMake directly', async () => {
-            cmakeDownloadedArchivePath = await tc.downloadTool(cmakeDownloadUrl, cmakeTempDownloadPath); // Track for cleanup
+          cmakeDownloadedArchivePath = await tc.downloadTool(cmakeDownloadUrl, cmakeTempDownloadPath); // Track for cleanup
         });
       }
       core.info(`CMake download completed. Archive at: ${cmakeDownloadedArchivePath}`);
-      if (!fs.existsSync(cmakeDownloadedArchivePath)) throw new Error(`CMake download failed: File not found at ${cmakeDownloadedArchivePath}`);
+      if (!fs.existsSync(cmakeDownloadedArchivePath))
+        throw new Error(`CMake download failed: File not found at ${cmakeDownloadedArchivePath}`);
 
       // Verify CMake Hash (if provided)
       if (cmakeHasHash) {
@@ -254,16 +288,18 @@ async function run() {
       // Locate CMake Directory
       const cmakePotentialRoot = path.join(cmakeTempExtractPath, cmakeFileName);
       if (fs.existsSync(cmakePotentialRoot) && fs.statSync(cmakePotentialRoot).isDirectory()) {
-          cmakeRootPath = cmakePotentialRoot;
+        cmakeRootPath = cmakePotentialRoot;
       } else {
-          const files = fs.readdirSync(cmakeTempExtractPath);
-          const dirs = files.filter((f) => fs.statSync(path.join(cmakeTempExtractPath, f)).isDirectory());
-          if (dirs.length === 1) {
-             cmakeRootPath = path.join(cmakeTempExtractPath, dirs[0]);
-             core.warning(`Assuming single directory '${dirs[0]}' is CMake root.`);
-          } else {
-            throw new Error(`Could not locate extracted CMake directory in ${cmakeTempExtractPath}. Found: ${dirs.join(', ')}`);
-          }
+        const files = fs.readdirSync(cmakeTempExtractPath);
+        const dirs = files.filter((f) => fs.statSync(path.join(cmakeTempExtractPath, f)).isDirectory());
+        if (dirs.length === 1) {
+          cmakeRootPath = path.join(cmakeTempExtractPath, dirs[0]);
+          core.warning(`Assuming single directory '${dirs[0]}' is CMake root.`);
+        } else {
+          throw new Error(
+            `Could not locate extracted CMake directory in ${cmakeTempExtractPath}. Found: ${dirs.join(', ')}`
+          );
+        }
       }
       core.info(`Located extracted CMake root at: ${cmakeRootPath}`);
 
@@ -284,14 +320,13 @@ async function run() {
       core.addPath(cmakeBinPath);
 
       // Verify Installation via PATH
-       await core.group('Verifying CMake installation via PATH', async () => {
-         try {
-           await exec.exec('cmake', ['--version']);
-         } catch (error) {
-           core.warning(`Verification 'cmake --version' failed: ${error.message}. Check PATH or CMake installation.`);
-         }
-       });
-
+      await core.group('Verifying CMake installation via PATH', async () => {
+        try {
+          await exec.exec('cmake', ['--version']);
+        } catch (error) {
+          core.warning(`Verification 'cmake --version' failed: ${error.message}. Check PATH or CMake installation.`);
+        }
+      });
     } else {
       core.info(`Skipping adding ${cmakeBinPath} to PATH.`);
     }
@@ -301,7 +336,6 @@ async function run() {
     core.setOutput('cmake-path', cmakeBinPath);
     core.info(`CMake ${resolvedCmakeVersion} setup complete.`);
     core.endGroup(); // End CMake setup group
-
 
     // === vcpkg Setup ===
     core.startGroup('Setup vcpkg');
@@ -331,7 +365,6 @@ async function run() {
     core.setOutput('vcpkg-root', finalVcpkgPath);
     core.info('vcpkg setup complete.');
     core.endGroup(); // End vcpkg setup group
-
   } catch (error) {
     // Fail the action with the error message
     core.setFailed(error.message);
