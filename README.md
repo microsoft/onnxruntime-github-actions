@@ -29,12 +29,16 @@ This project uses `esbuild` to compile the JavaScript source code for each actio
     - Handles enabling execution providers via `--use_<ep>` flags.
     - See: [`actions/run-build-script-in-docker/action.yml`](./actions/run-build-script-in-docker/action.yml)
 
-3.  **`setup-vcpkg`**
-    - Downloads, verifies, bootstraps, and caches a specific tagged version of vcpkg. This Action is Windows only.
-    - Sets the `VCPKG_INSTALLATION_ROOT` environment variable for subsequent steps.
-    - Leverages `@actions/tool-cache` for efficient caching.
-    - See: [`.github/actions/setup-vcpkg/action.yml`](./.github/actions/setup-vcpkg/action.yml)
-    - See details: [`.github/actions/setup-vcpkg/README.md`](./.github/actions/setup-vcpkg/README.md)
+3.  **`setup-build-tools`**
+
+    - Sets up specified versions of CMake and vcpkg for build environments.
+    - Downloads, verifies (via SHA512 hash), extracts, and caches the tools using `@actions/tool-cache`.
+    - Runs CMake setup first, then vcpkg setup (including bootstrapping).
+    - Optionally adds the installed CMake version to the system `PATH`.
+    - Sets the `VCPKG_INSTALLATION_ROOT` environment variable for use with toolchain files.
+    - Supports Windows, Linux, and macOS runners.
+    - See: [`actions/setup-build-tools/action.yml`](./actions/setup-build-tools/action.yml)
+    - See details: [`actions/setup-build-tools/README.md`](./actions/setup-build-tools/README.md)
 
 ## Usage (for Consumers)
 

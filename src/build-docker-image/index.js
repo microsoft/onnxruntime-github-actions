@@ -29,19 +29,48 @@ function getInputsAndConfig() {
   core.info(`Dockerfile path: ${dockerfilePath}`);
   core.info(`Derived Context path: ${contextPath}`);
   const ghcrRegistry = 'ghcr.io';
+  const dockerhubRegistry = 'docker.io';
   let targetRegistry = '';
   let targetAcrName = '';
-  if (imageNameBase.startsWith(`${ghcrRegistry}/`)) {
-    targetRegistry = ghcrRegistry;
-  } else if (imageNameBase.includes('.azurecr.io/')) {
-    targetAcrName = imageNameBase.substring(0, imageNameBase.indexOf('.azurecr.io'));
-    targetRegistry = `${targetAcrName}.azurecr.io`;
-  } else if (imageNameBase.includes('/')) {
-    targetRegistry = imageNameBase.substring(0, imageNameBase.indexOf('/'));
-    core.warning(`Detected potential push/pull target registry "${targetRegistry}".`);
+  // Find the first slash which separates registry/host from the image path
+  const firstSlashIndex = imageNameBase.indexOf('/');
+
+  if (firstSlashIndex === -1) {
+    // Case 1: No slash found (e.g., "ubuntu", "redis")
+    // Assume it's an official image on Docker Hub
+    targetRegistry = dockerhubRegistry;
+    core.info(`No registry host specified, assuming ${dockerhubRegistry}.`);
   } else {
-    targetRegistry = 'docker.io';
-    core.info(`No registry specified in push/pull target image name.`);
+    // Case 2: Slash found. Check if the part before the slash looks like a hostname.
+    const potentialHostPart = imageNameBase.substring(0, firstSlashIndex);
+
+    // A valid hostname typically contains a '.' (like example.com) or ':' for a port
+    const isLikelyHost = potentialHostPart.includes('.') || potentialHostPart.includes(':');
+
+    if (isLikelyHost) {
+      // Case 2a: The part before the slash looks like a hostname.
+      const hostPart = potentialHostPart;
+
+      // *** SECURE CHECK: Only check if the identified host *ends* with .azurecr.io ***
+      if (hostPart.endsWith('.azurecr.io')) {
+        targetRegistry = hostPart; // e.g., myregistry.azurecr.io
+        // Extract ACR name (part before .azurecr.io)
+        targetAcrName = hostPart.substring(0, hostPart.length - '.azurecr.io'.length);
+        core.info(`Detected ACR registry: ${targetRegistry}`);
+      } else if (hostPart === ghcrRegistry) {
+        targetRegistry = ghcrRegistry;
+        core.info(`Detected GHCR registry: ${targetRegistry}`);
+      } else {
+        // It's some other registry (e.g., private, Docker Hub with namespace?)
+        targetRegistry = hostPart;
+        core.warning(`Detected potential push/pull target registry "${targetRegistry}".`);
+      }
+    } else {
+      // Case 2b: The part before the slash does NOT look like a hostname (e.g., "username/myimage")
+      // Assume it's an image on Docker Hub under a specific user/org namespace.
+      targetRegistry = dockerhubRegistry;
+      core.info(`No registry host specified (based on format), assuming ${dockerhubRegistry}.`);
+    }
   }
   core.info(`Push/Pull target registry determined as: ${targetRegistry || 'Default (Docker Hub/Local)'}`);
   const shouldPushInput = core.getBooleanInput('push');
