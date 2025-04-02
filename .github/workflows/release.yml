@@ -54,9 +54,14 @@ jobs:
           echo "Main repo path: $MAIN_REPO_PATH"
           echo "Creating artifact worktree at: $ARTIFACT_WT_PATH"
 
-          # Create a new orphan branch IN the main repo first
-          git branch "$ARTIFACT_BRANCH" $(git commit-tree $(git hash-object -t tree /dev/null) < /dev/null)
+          # Create an empty tree object
+          EMPTY_TREE=$(git hash-object -t tree /dev/null)
 
+          # Create a new commit with the empty tree
+          EMPTY_COMMIT=$(echo "Initial commit on orphan branch" | git commit-tree $EMPTY_TREE)
+
+          # Create a new orphan branch pointing to the empty commit
+          git branch "$ARTIFACT_BRANCH" $EMPTY_COMMIT
           # Create the worktree linked to the new orphan branch
           git worktree add "$ARTIFACT_WT_PATH" "$ARTIFACT_BRANCH"
 
