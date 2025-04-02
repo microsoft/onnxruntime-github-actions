@@ -10,11 +10,11 @@ const buildDir = path.join(__dirname, 'build'); // Build output directory
 
 // Shared esbuild options
 const sharedEsbuildOptions = {
-  bundle: true,        // Bundle dependencies
-  platform: 'node',    // Target Node.js environment
-  target: 'node20',    // Target Node.js version (must match action.yml)
-  minify: true,        // Minify output code
-  sourcemap: 'linked'  // Generate linked source maps for debugging
+  bundle: true, // Bundle dependencies
+  platform: 'node', // Target Node.js environment
+  target: 'node20', // Target Node.js version (must match action.yml)
+  minify: true, // Minify output code
+  sourcemap: 'linked', // Generate linked source maps for debugging
   // Consider adding external: ['@actions/*'] if you want to rely on runner's modules,
   // but bundling is usually safer for distribution. Default behavior bundles them.
 };
@@ -56,12 +56,11 @@ async function build() {
 
         // Check if entry point exists before trying to build
         try {
-            await fs.access(entryPoint);
+          await fs.access(entryPoint);
         } catch (err) {
-            console.warn(`  -> WARNING: Entry point not found at ${entryPoint}. Skipping build for ${actionName}.`);
-            continue; // Skip if index.js doesn't exist
+          console.warn(`  -> WARNING: Entry point not found at ${entryPoint}. Skipping build for ${actionName}.`);
+          continue; // Skip if index.js doesn't exist
         }
-
 
         // Run esbuild to bundle JavaScript
         await esbuild.build({
@@ -73,12 +72,11 @@ async function build() {
 
         // Copy the corresponding action.yml
         try {
-            await fs.copyFile(actionYmlSrc, actionYmlDest);
-            console.log(`  -> Copied action.yml to ${actionYmlDest}`);
+          await fs.copyFile(actionYmlSrc, actionYmlDest);
+          console.log(`  -> Copied action.yml to ${actionYmlDest}`);
         } catch (copyError) {
-            // Log error but maybe don't fail the whole build? Or fail? Let's fail for now.
-            console.error(`  -> ERROR copying action.yml for ${actionName} from ${actionYmlSrc}: ${copyError.message}`);
-            throw copyError;
+          console.error(`  -> ERROR copying action.yml for ${actionName} from ${actionYmlSrc}: ${copyError.message}`);
+          throw copyError;
         }
       }
     }

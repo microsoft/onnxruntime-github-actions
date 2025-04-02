@@ -1,27 +1,27 @@
-name: Create Release and Upload Assets
+# .github/workflows/release.yml
+name: Build Artifacts, Update Tag, and Create Release (Worktree)
 
 on:
   push:
     tags:
       - 'v*.*.*' # Trigger only on tags like v1.0.0, v1.2.3 etc.
 
-# Permissions needed to create releases and upload assets
 permissions:
-  contents: write
+  contents: write # Needed for branch/tag manipulation and release creation
 
 jobs:
-  release:
-    name: Build and Release Actions
+  build_and_release:
+    name: Build, Package Artifacts, Update Tag, and Release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code at Tag
-        uses: actions/checkout@v4
-        # This automatically checks out the commit associated with the pushed tag
-
       - name: Get Tag Name
         id: get_tag
-        # Extract tag name (e.g., v1.0.0) from the ref (refs/tags/v1.0.0)
         run: echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      # Check out MAIN repo (where build happens)
+      - name: Checkout Code at Tag (for building)
+        id: main_checkout # Give this step an ID
+        uses: actions/checkout@v4
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -35,33 +35,100 @@ jobs:
       - name: Build Actions using esbuild
         run: npm run build # Creates the local build/ directory
 
-      - name: Package Built Actions into Zip Archive
-        id: package_actions
+      - name: Configure Git User
         run: |
-          TAG_NAME="${{ steps.get_tag.outputs.tag_name }}"
-          PACKAGE_NAME="onnxruntime-actions-${TAG_NAME}.zip"
-          echo "Creating package: ${PACKAGE_NAME}"
-          # Navigate into the build directory to zip its contents correctly
-          cd build
-          if [ -z "$(ls -A .)" ]; then
-            echo "::error::Build directory ('build/') is empty after build step!"
-            exit 1
-          fi
-          # Create a zip file in the parent directory containing all files/folders within build/
-          zip -r ../${PACKAGE_NAME} ./*
-          cd ..
-          # Output the path and name for the upload step
-          echo "package_path=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
-          echo "package_name=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
-          echo "Created package:"
-          ls -l ${PACKAGE_NAME} # Verify zip exists and show size
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create GitHub Release and Upload Asset
-        uses: softprops/action-gh-release@v2
-        with:
-          # tag_name: ${{ steps.get_tag.outputs.tag_name }} # Uses the triggering tag by default
-          # name: Release ${{ steps.get_tag.outputs.tag_name }} # Optional: Customize release title
-          files: ${{ steps.package_actions.outputs.package_path }} # Path to the zip file to upload
-          generate_release_notes: true # Optional: Auto-generate release notes from commits since last tag
+      - name: Prepare Artifact Worktree and Commit
+        id: prepare_artifacts
+        run: |
+          set -e
+          TAG_NAME="${{ steps.get_tag.outputs.tag_name }}"
+          SOURCE_COMMIT_HASH=$(git rev-parse HEAD) # Hash where build happened
+          MAIN_REPO_PATH=$(pwd) # Path to the main checkout
+          ARTIFACT_WT_PATH="../artifact-worktree-${TAG_NAME}" # Path for the worktree
+          ARTIFACT_BRANCH="temp-artifact-branch-${TAG_NAME}" # Temporary branch name
+
+          echo "Source commit for build: $SOURCE_COMMIT_HASH"
+          echo "Main repo path: $MAIN_REPO_PATH"
+          echo "Creating artifact worktree at: $ARTIFACT_WT_PATH"
+
+          # Create a new orphan branch IN the main repo first
+          git branch "$ARTIFACT_BRANCH" $(git commit-tree $(git hash-object -t tree /dev/null) < /dev/null)
+
+          # Create the worktree linked to the new orphan branch
+          git worktree add "$ARTIFACT_WT_PATH" "$ARTIFACT_BRANCH"
+
+          # --- Operations within the Artifact Worktree ---
+          cd "$ARTIFACT_WT_PATH"
+          echo "Entered artifact worktree: $(pwd)"
+
+          echo "Copying essential files..."
+          cp "$MAIN_REPO_PATH/LICENSE" .
+          cp "$MAIN_REPO_PATH/README.md" .
+          cp "$MAIN_REPO_PATH/SECURITY.md" .
+          cp "$MAIN_REPO_PATH/CODE_OF_CONDUCT.md" .
+          cp "$MAIN_REPO_PATH/SUPPORT.md" .
+          # Add any other essential files here
+
+          echo "Copying built artifacts..."
+          ACTIONS=("build-docker-image" "run-build-script-in-docker" "setup-cmake" "setup-vcpkg")
+          BUILD_DIR_RELATIVE="build" # Relative to MAIN_REPO_PATH
+
+          for action_name in "${ACTIONS[@]}"; do
+            echo "Processing action: $action_name"
+            DEST_ACTION_DIR="actions/$action_name"
+            DEST_DIST_DIR="$DEST_ACTION_DIR/dist"
+            SRC_ACTION_PATH="$MAIN_REPO_PATH/$BUILD_DIR_RELATIVE/$action_name"
+
+            mkdir -p "$DEST_DIST_DIR"
+            cp "$SRC_ACTION_PATH/action.yml" "$DEST_ACTION_DIR/"
+            cp "$SRC_ACTION_PATH/dist/index.js" "$DEST_DIST_DIR/"
+            cp "$SRC_ACTION_PATH/dist/index.js.map" "$DEST_DIST_DIR/"
+            echo "  Copied artifacts for $action_name"
+          done
+
+          echo "Adding files to index..."
+          git add .
+
+          echo "Git status before commit:"
+          git status
+
+          echo "Committing artifacts..."
+          COMMIT_MSG="Release artifacts for $TAG_NAME
+
+          Built from source commit $SOURCE_COMMIT_HASH"
+          git commit -m "$COMMIT_MSG"
+          ARTIFACT_COMMIT_HASH=$(git rev-parse HEAD)
+          echo "Artifact commit hash: $ARTIFACT_COMMIT_HASH"
+          echo "artifact_commit_hash=$ARTIFACT_COMMIT_HASH" >> "$GITHUB_OUTPUT"
+
+          # --- Return to main worktree ---
+          cd "$MAIN_REPO_PATH"
+
+      - name: Force-push Tag to Artifact Commit
+        run: |
+          set -e
+          TAG_NAME="${{ steps.get_tag.outputs.tag_name }}"
+          ARTIFACT_COMMIT_HASH="${{ steps.prepare_artifacts.outputs.artifact_commit_hash }}"
+          echo "Moving tag $TAG_NAME to point to artifact commit $ARTIFACT_COMMIT_HASH"
+          git tag -f "$TAG_NAME" "$ARTIFACT_COMMIT_HASH"
+          echo "Force pushing tag $TAG_NAME to origin"
+          git push origin "$TAG_NAME" --force
+
+      # ----- Create Release Step (Using GitHub CLI) -----
+      - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Required for creating release/uploading assets
+          # The GITHUB_TOKEN secret is automatically available to the gh cli
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.get_tag.outputs.tag_name }}
+        run: |
+          echo "Creating release for tag $TAG"
+          # Create the release using the tag that was just pushed.
+          # --generate-notes will create the release notes based on commits
+          # between the current and previous tags (using the tag's new position).
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Release $TAG" \
+            --generate-notes

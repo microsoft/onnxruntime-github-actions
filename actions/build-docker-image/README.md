@@ -6,24 +6,24 @@ The build context is automatically determined as the directory containing the sp
 
 ## Inputs
 
-| Input                           | Description                                                                                                                                                              | Required | Default          |
-| :------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------: | :--------------- |
-| `dockerfile`                    | Path to the Dockerfile (relative to repository root). The directory containing this file will be used as the build context.                                               |   Yes    |                  |
-| `image-name`                    | Base image name *without* tag (e.g., `ghcr.io/owner/repo/img`, `myacr.azurecr.io/myimg`). A calculated checksum tag will be appended for caching and potential push/pull. |   Yes    |                  |
-| `build-args`                    | String of build arguments (e.g., `"ARG1=VAL1 ARG2=VAL2"`) to pass to `docker build` AND include in the cache checksum calculation.                                       |    No    | `""`             |
-| `hash-algorithm`                | Hash algorithm for checksum (e.g., `sha256`, `sha512`). Must be supported by Node.js crypto module.                                                                       |    No    | `"sha256"`       |
-| `push`                          | Set to `true` to push the checksum-tagged image if it was built (cache miss) **AND** if the workflow runs on an allowed branch (`main`, `rel-*`, `snnn/ci`) and is not a PR. |    No    | `"false"`        |
-| `pull`                          | Set to `true` to attempt pulling the checksum-tagged image from the registry before building to check for a cache hit.                                                 |    No    | `"true"`         |
-| `login-ghcr`                    | Attempt login to `ghcr.io` using `GITHUB_TOKEN`. Defaults to `true` if `image-name` starts with `ghcr.io/`, otherwise `false`. Needs `packages: write` permission.     |    No    | *(dynamic)* |
-| `azure-container-registry-name` | If provided, the action will attempt `az login --identity` and `az acr login` with this name *before* the build (useful for pulling base images from a private ACR).      |    No    | `""`             |
-| `skip-build-on-pull-hit`        | If `pull` is `true` and the image is pulled successfully (cache hit), set this to `true` to skip the `docker build` step entirely.                                     |    No    | `"true"`         |
+| Input                           | Description                                                                                                                                                                  | Required | Default     |
+| :------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------: | :---------- |
+| `dockerfile`                    | Path to the Dockerfile (relative to repository root). The directory containing this file will be used as the build context.                                                  |   Yes    |             |
+| `image-name`                    | Base image name _without_ tag (e.g., `ghcr.io/owner/repo/img`, `myacr.azurecr.io/myimg`). A calculated checksum tag will be appended for caching and potential push/pull.    |   Yes    |             |
+| `build-args`                    | String of build arguments (e.g., `"ARG1=VAL1 ARG2=VAL2"`) to pass to `docker build` AND include in the cache checksum calculation.                                           |    No    | `""`        |
+| `hash-algorithm`                | Hash algorithm for checksum (e.g., `sha256`, `sha512`). Must be supported by Node.js crypto module.                                                                          |    No    | `"sha256"`  |
+| `push`                          | Set to `true` to push the checksum-tagged image if it was built (cache miss) **AND** if the workflow runs on an allowed branch (`main`, `rel-*`, `snnn/ci`) and is not a PR. |    No    | `"false"`   |
+| `pull`                          | Set to `true` to attempt pulling the checksum-tagged image from the registry before building to check for a cache hit.                                                       |    No    | `"true"`    |
+| `login-ghcr`                    | Attempt login to `ghcr.io` using `GITHUB_TOKEN`. Defaults to `true` if `image-name` starts with `ghcr.io/`, otherwise `false`. Needs `packages: write` permission.           |    No    | _(dynamic)_ |
+| `azure-container-registry-name` | If provided, the action will attempt `az login --identity` and `az acr login` with this name _before_ the build (useful for pulling base images from a private ACR).         |    No    | `""`        |
+| `skip-build-on-pull-hit`        | If `pull` is `true` and the image is pulled successfully (cache hit), set this to `true` to skip the `docker build` step entirely.                                           |    No    | `"true"`    |
 
 ## Outputs
 
-| Output            | Description                                                                                                       |
-| :---------------- | :---------------------------------------------------------------------------------------------------------------- |
-| `cache-hit`       | `"true"` if a cached image was pulled successfully based on the checksum tag, `"false"` otherwise.                  |
-| `image-tag`       | The calculated checksum tag used for the image (e.g., `sha256-abcdef123...`).                                     |
+| Output            | Description                                                                                                     |
+| :---------------- | :-------------------------------------------------------------------------------------------------------------- |
+| `cache-hit`       | `"true"` if a cached image was pulled successfully based on the checksum tag, `"false"` otherwise.              |
+| `image-tag`       | The calculated checksum tag used for the image (e.g., `sha256-abcdef123...`).                                   |
 | `full-image-name` | The full image name including the calculated checksum tag (e.g., `ghcr.io/owner/repo/img:sha256-abcdef123...`). |
 
 ## Caching Mechanism
@@ -31,21 +31,21 @@ The build context is automatically determined as the directory containing the sp
 This action implements **image-level caching** using checksums:
 
 1.  **Checksum Calculation:** A checksum (default: SHA256) is calculated based on:
-    * The content of the specified `dockerfile`.
-    * The normalized content of the `build-args` input string.
-    * The runner's User ID (`BUILD_UID`) on non-Windows platforms.
-    * The relative paths and content of **all** files within the derived build `context` directory (excluding `.git/**`). **Note:** This does *not* currently respect `.dockerignore`. Changes to ignored files will still invalidate the cache.
+    - The content of the specified `dockerfile`.
+    - The normalized content of the `build-args` input string.
+    - The runner's User ID (`BUILD_UID`) on non-Windows platforms.
+    - The relative paths and content of **all** files within the derived build `context` directory (excluding `.git/**`). **Note:** This does _not_ currently respect `.dockerignore`. Changes to ignored files will still invalidate the cache.
 2.  **Image Tag:** The checksum is used to create a tag in the format `<hash-algorithm>-<checksum>`.
 3.  **Pull Attempt (`pull: true`):** The action attempts to pull `<image-name>:<checksum-tag>` from the registry specified in `image-name`. If successful, it's a cache hit.
 4.  **Build (`skip-build-on-pull-hit: false` or Cache Miss):** If the pull fails (cache miss) or skipping is disabled, `docker build` is executed, tagging the new image with the `<image-name>:<checksum-tag>`. The action also applies a local convenience tag `<image-name>:latest`.
-5.  **Push (`push: true`):** If the image was *built* (cache miss) *and* the workflow was triggered by a push (not `pull_request`) *and* the branch is `main`, starts with `rel-`, or is `snnn/ci`, the newly built `<image-name>:<checksum-tag>` is pushed to the registry.
+5.  **Push (`push: true`):** If the image was _built_ (cache miss) _and_ the workflow was triggered by a push (not `pull_request`) _and_ the branch is `main`, starts with `rel-`, or is `snnn/ci`, the newly built `<image-name>:<checksum-tag>` is pushed to the registry.
 
 This provides a reasonably robust cache that only updates from specific branches, preventing feature branches from overwriting the cache used by others, while still allowing all builds to benefit from pulling existing cached images.
 
 ## Authentication
 
-* **GHCR:** If `login-ghcr` is `true` (which is the default if `image-name` starts with `ghcr.io/`), the action attempts to log in using the workflow's `GITHUB_TOKEN`. Ensure the workflow has `permissions: packages: write`.
-* **ACR:** If `azure-container-registry-name` is provided, the action attempts to log in using `az login --identity` and `az acr login --name <registry-name>`. This requires Azure credentials (like workload identity federation) to be configured for the runner environment. This login happens *before* the build, making it suitable for accessing private ACR base images specified in the `Dockerfile`.
+- **GHCR:** If `login-ghcr` is `true` (which is the default if `image-name` starts with `ghcr.io/`), the action attempts to log in using the workflow's `GITHUB_TOKEN`. Ensure the workflow has `permissions: packages: write`.
+- **ACR:** If `azure-container-registry-name` is provided, the action attempts to log in using `az login --identity` and `az acr login --name <registry-name>`. This requires Azure credentials (like workload identity federation) to be configured for the runner environment. This login happens _before_ the build, making it suitable for accessing private ACR base images specified in the `Dockerfile`.
 
 ## Usage Example
 
@@ -54,9 +54,9 @@ name: Build App
 
 on:
   push:
-    branches: [ main, 'rel-*', 'snnn/ci' ] # Trigger on branches allowed to push cache
+    branches: [main, 'rel-*', 'snnn/ci'] # Trigger on branches allowed to push cache
   pull_request:
-    branches: [ main ] # Trigger on PRs targeting main
+    branches: [main] # Trigger on PRs targeting main
   workflow_dispatch:
 
 # Grant permissions needed for logins and potentially push

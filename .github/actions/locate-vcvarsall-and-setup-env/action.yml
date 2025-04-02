@@ -7,14 +7,14 @@ inputs:
     default: 'x64'
 outputs:
   vcvarsall_path:
-    description: "Path to vcvarsall.bat"
+    description: 'Path to vcvarsall.bat'
     value: ${{ steps.find-vcvarsall.outputs.vcvarsall_path }}
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
     - name: Find vcvarsall.bat
       id: find-vcvarsall
-      shell: python  # Use Python shell
+      shell: python # Use Python shell
       run: |
         import os
         import subprocess
@@ -45,7 +45,6 @@ runs:
         except FileNotFoundError:
             print(f"vswhere.exe not found at: {vswhere_path}")
             exit(1)
-
 
     - name: Setup Environment
       shell: cmd
