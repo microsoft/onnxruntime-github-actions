@@ -4,8 +4,7 @@ const core = require('@actions/core');
 const exec = require('@actions/exec');
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
-const os = require('node:os');
-const path = require('node:path'); // Added for consistency
+const path = require('node:path');
 
 // --- Execution Helper ---
 

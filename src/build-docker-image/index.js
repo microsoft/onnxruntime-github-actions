@@ -20,7 +20,6 @@ function getInputsAndConfig() {
   const imageNameBase = core.getInput('image-name', { required: true });
   const buildArgsInput = core.getInput('build-args');
   const hashAlgorithm = core.getInput('hash-algorithm') || 'sha256';
-  const shouldPushInputString = core.getInput('push');
   const shouldPullString = core.getInput('pull');
   const skipBuildOnPullHitString = core.getInput('skip-build-on-pull-hit');
   const acrNameToLogin = core.getInput('azure-container-registry-name').trim();
@@ -407,7 +406,6 @@ async function run() {
     let cacheHit = await attemptPullCache(fullImageNameWithChecksumTag, config.shouldPull);
     core.setOutput('cache-hit', cacheHit.toString());
 
-    let builtImage = false;
     if (cacheHit && config.skipBuildOnPullHit) {
       core.info('Skipping Docker build step due to cache hit.');
     } else {
@@ -418,7 +416,6 @@ async function run() {
 
       // Pass UID to buildImage
       await buildImage(config, fullImageNameWithChecksumTag, uid); // <-- Pass UID
-      builtImage = true;
       cacheHit = false;
       core.setOutput('cache-hit', 'false');
 
