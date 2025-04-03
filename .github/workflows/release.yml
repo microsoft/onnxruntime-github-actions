@@ -78,12 +78,12 @@ jobs:
           # Add any other essential files here
 
           echo "Copying built artifacts..."
-          ACTIONS=("build-docker-image" "run-build-script-in-docker" "setup-cmake" "setup-vcpkg")
+          ACTIONS=("build-docker-image" "run-build-script-in-docker" "setup-build-tools")
           BUILD_DIR_RELATIVE="build" # Relative to MAIN_REPO_PATH
 
           for action_name in "${ACTIONS[@]}"; do
             echo "Processing action: $action_name"
-            DEST_ACTION_DIR="actions/$action_name"
+            DEST_ACTION_DIR="$action_name"
             DEST_DIST_DIR="$DEST_ACTION_DIR/dist"
             SRC_ACTION_PATH="$MAIN_REPO_PATH/$BUILD_DIR_RELATIVE/$action_name"
 
