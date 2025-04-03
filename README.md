@@ -6,33 +6,39 @@ This project uses `esbuild` to compile the JavaScript source code for each actio
 
 ## Project Structure
 
-* `/src`: Contains the source TypeScript/JavaScript code for each action in its own subdirectory.
-* `/actions`: Contains the `action.yml` metadata file for each action in its own subdirectory.
-* `/build`: (Generated, not committed to `main`) Contains the compiled output after running `npm run build`. Each action has a subdirectory here containing its `action.yml` and `dist/index.js`.
-* `package.json`: Manages dependencies and build scripts for all actions.
-* `esbuild.config.mjs`: Configuration file for the `esbuild` bundler.
+- `/src`: Contains the source TypeScript/JavaScript code for each action in its own subdirectory.
+- `/actions`: Contains the `action.yml` metadata file for each action in its own subdirectory.
+- `/build`: (Generated, not committed to `main`) Contains the compiled output after running `npm run build`. Each action has a subdirectory here containing its `action.yml` and `dist/index.js`.
+- `package.json`: Manages dependencies and build scripts for all actions.
+- `esbuild.config.mjs`: Configuration file for the `esbuild` bundler.
 
 ## Available Actions
 
 1.  **`build-docker-image`**
-    * Builds a Docker image, with optional caching and pushing via Azure Container Registry. This Action is Linux only.
-    * See: [`actions/build-docker-image/action.yml`](./actions/build-docker-image/action.yml)
-    * See details: [`.github/actions/build-docker-image/README.md`](./.github/actions/build-docker-image/README.md)    
+
+    - Builds a Docker image, with optional caching and pushing via Azure Container Registry. This Action is Linux only.
+    - See: [`actions/build-docker-image/action.yml`](./actions/build-docker-image/action.yml)
+    - See details: [`.github/actions/build-docker-image/README.md`](./.github/actions/build-docker-image/README.md)
 
 2.  **`run-build-script-in-docker`**
-    * Runs the ONNX Runtime `tools/ci_build/build.py` script inside a specified Docker container. This Action is Linux only.
-    * Supports different modes (`update`, `build`, `test`).
-    * Includes auto-detection for NVIDIA GPUs (`--gpus all`).
-    * Manages common volume mounts (workspace, cache, test data).
-    * Handles enabling execution providers via `--use_<ep>` flags.
-    * See: [`actions/run-build-script-in-docker/action.yml`](./actions/run-build-script-in-docker/action.yml)
 
-3.  **`setup-vcpkg`**
-    * Downloads, verifies, bootstraps, and caches a specific tagged version of vcpkg. This Action is Windows only.
-    * Sets the `VCPKG_INSTALLATION_ROOT` environment variable for subsequent steps.
-    * Leverages `@actions/tool-cache` for efficient caching.
-    * See: [`.github/actions/setup-vcpkg/action.yml`](./.github/actions/setup-vcpkg/action.yml)
-    * See details: [`.github/actions/setup-vcpkg/README.md`](./.github/actions/setup-vcpkg/README.md)
+    - Runs the ONNX Runtime `tools/ci_build/build.py` script inside a specified Docker container. This Action is Linux only.
+    - Supports different modes (`update`, `build`, `test`).
+    - Includes auto-detection for NVIDIA GPUs (`--gpus all`).
+    - Manages common volume mounts (workspace, cache, test data).
+    - Handles enabling execution providers via `--use_<ep>` flags.
+    - See: [`actions/run-build-script-in-docker/action.yml`](./actions/run-build-script-in-docker/action.yml)
+
+3.  **`setup-build-tools`**
+
+    - Sets up specified versions of CMake and vcpkg for build environments.
+    - Downloads, verifies (via SHA512 hash), extracts, and caches the tools using `@actions/tool-cache`.
+    - Runs CMake setup first, then vcpkg setup (including bootstrapping).
+    - Optionally adds the installed CMake version to the system `PATH`.
+    - Sets the `VCPKG_INSTALLATION_ROOT` environment variable for use with toolchain files.
+    - Supports Windows, Linux, and macOS runners.
+    - See: [`actions/setup-build-tools/action.yml`](./actions/setup-build-tools/action.yml)
+    - See details: [`actions/setup-build-tools/README.md`](./actions/setup-build-tools/README.md)
 
 ## Usage (for Consumers)
 
@@ -51,6 +57,7 @@ Instead, you must download the compiled action bundle from the corresponding Git
 4. Use in Workflow: Add steps to your workflow to download and unzip the asset, then reference the action using its local path.
 
 Example Workflow Snippet:
+
 ```yaml
 name: Example Workflow Using ORT Actions
 
@@ -67,10 +74,10 @@ jobs:
       - name: Download ORT Actions Asset (v0.0.2) # <-- Adjust version as needed
         uses: dsaltares/fetch-gh-release-asset@1.1.0 # Action to download assets
         with:
-          repo: 'microsoft/onnxruntime-github-actions'   # The repo containing the actions
-          version: 'tags/v0.0.2'                          # The specific tag/version to use
-          file: 'onnxruntime-actions-v0.0.2.zip'         # The asset filename (matches release workflow output)
-          target: 'onnxruntime-actions.zip'             # Local filename to save as
+          repo: 'microsoft/onnxruntime-github-actions' # The repo containing the actions
+          version: 'tags/v0.0.2' # The specific tag/version to use
+          file: 'onnxruntime-actions-v0.0.2.zip' # The asset filename (matches release workflow output)
+          target: 'onnxruntime-actions.zip' # Local filename to save as
         env:
           # Use default token for public repos, provide PAT for private if necessary
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -94,19 +101,17 @@ jobs:
           mode: 'build' # Or 'update', 'test'
           execution_providers: 'cuda tensorrt'
           # ... other inputs ...
-
 ```
-
 
 # Integration Test
 
-Before making a release, please use the following steps to do an integration test with ONNX Runtime's main repo. While the standard release process involves tags and downloadable assets (as described in the "Usage" section), we need to test changes in a consuming repository *before* an official release is tagged, using the direct `uses:` syntax. This can be achieved by temporarily committing the compiled `build/` directory to a specific branch or commit.
+Before making a release, please use the following steps to do an integration test with ONNX Runtime's main repo. While the standard release process involves tags and downloadable assets (as described in the "Usage" section), we need to test changes in a consuming repository _before_ an official release is tagged, using the direct `uses:` syntax. This can be achieved by temporarily committing the compiled `build/` directory to a specific branch or commit.
 
 **Note:** This method involves committing build artifacts to the Git repository, which is generally discouraged for the `main` branch as it increases repository size and complicates diffs. Use this approach primarily on short-lived development/feature branches for integration testing purposes.
 
 **Steps that should be done in this repo:**
 
-1.  **Create a Branch:** Create a new development branch in *this* repository (e.g., `dev/feature-xyz`).
+1.  **Create a Branch:** Create a new development branch in _this_ repository (e.g., `dev/feature-xyz`).
 2.  **Make Changes:** Modify the action source code (`src/`) and/or metadata (`actions/`).
 3.  **Build:** Run `npm run build` from the repository root. This generates the output in the `build/` directory.
 4.  **Commit Build Output:** Stage and commit **both** your source code changes AND the entire generated `build/` directory. You may need to bypass the `.gitignore` for the `build/` directory:
@@ -119,8 +124,9 @@ Before making a release, please use the following steps to do an integration tes
 6.  **Get Commit SHA (Recommended):** After pushing, get the full commit SHA of your latest commit on the development branch (e.g., using `git rev-parse HEAD` or from the GitHub UI).
 
 **Steps that should be done in the main ONNX Runtime repo**
+
 1.  Create a dev branch
-2.  Modify the `uses:` line for the action you want to test to point to the specific branch or commit SHA in *this* actions repository:
+2.  Modify the `uses:` line for the action you want to test to point to the specific branch or commit SHA in _this_ actions repository:
 
     ```yaml
     steps:
@@ -133,11 +139,12 @@ Before making a release, please use the following steps to do an integration tes
         with:
           # ... inputs ...
     ```
-    *(Replace `<full_commit_sha_from_actions_repo>` with the actual SHA obtained in step 6 above).*
+
+    _(Replace `<full_commit_sha_from_actions_repo>` with the actual SHA obtained in step 6 above)._
 
 ## Contributing
 
-This project welcomes contributions and suggestions.  Most contributions require you to agree to a
+This project welcomes contributions and suggestions. Most contributions require you to agree to a
 Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
 the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.
 
@@ -149,11 +156,10 @@ This project has adopted the [Microsoft Open Source Code of Conduct](https://ope
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 
-
 ## Trademarks
 
-This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft 
-trademarks or logos is subject to and must follow 
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
+trademarks or logos is subject to and must follow
 [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
 Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
 Any use of third-party trademarks or logos are subject to those third-party's policies.

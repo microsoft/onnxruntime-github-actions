@@ -1,16 +1,48 @@
 name: 'Build Docker Image'
-description: 'Builds a Docker image and optionally pushes it to Azure Container Registry.'
+description: 'Builds a Docker image using the directory containing the Dockerfile as context. Supports ACR login for base images and uses a checksum tag for image-level caching (pull/push) to a registry.' # Updated description
+
 inputs:
-  Dockerfile:
-    description: 'Path to the Dockerfile.'
+  dockerfile:
+    description: 'Required. Path to the Dockerfile (relative to repository root). The directory containing this file will be used as the build context.' # Updated description
     required: true
-  DockerBuildArgs:
-    description: 'Arguments to pass to docker build.'
+  image-name:
+    description: 'Required. Base image name for tagging and potential push/pull cache (e.g., ghcr.io/owner/repo/img, myacr.azurecr.io/img). Checksum tag will be added.'
+    required: true
+  build-args:
+    description: 'Optional. String of build arguments to pass to `docker build` (e.g., "ARG1=VAL1 ARG2=VAL2") AND include in checksum.'
     required: false
     default: ''
-  Repository:
-    description: 'The image repository name.'
-    required: true
+  hash-algorithm:
+    description: 'Optional. Hash algorithm (e.g., sha256, sha512).'
+    required: false
+    default: 'sha256'
+  push:
+    description: 'Optional. Push the checksum-tagged image if built (cache miss) AND if on an allowed branch (main, rel-*, snnn/ci) and not a PR.'
+    required: false
+    default: 'false'
+  pull:
+    description: 'Optional. Attempt to pull the checksum-tagged image before building to check for cache hit.'
+    required: false
+    default: 'true'
+  login-ghcr:
+    description: 'Optional. Attempt login to ghcr.io using GITHUB_TOKEN. Defaults to true if image-name starts with `ghcr.io`.'
+    required: false
+  azure-container-registry-name:
+    description: 'Optional. If provided, the action will attempt `az login --identity` and `az acr login` with this name *before* the build starts (useful for base image pulls from ACR).'
+    required: false
+    default: ''
+  skip-build-on-pull-hit:
+    description: 'Optional. If pull succeeds (cache hit), skip the docker build step.'
+    required: false
+    default: 'true'
+
+outputs:
+  cache-hit:
+    description: 'Outputs "true" if a cached image was pulled successfully and build was potentially skipped, "false" otherwise.'
+  image-tag:
+    description: 'The calculated checksum tag used (e.g., sha256-abcdef123...)'
+  full-image-name:
+    description: 'The full image name including the checksum tag (e.g., ghcr.io/owner/repo/img:sha256-abcdef123...)'
 
 runs:
   using: 'node20'
