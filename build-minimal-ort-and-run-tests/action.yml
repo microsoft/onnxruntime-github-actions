@@ -1,33 +1,33 @@
 name: 'Build Minimal ORT and Run Tests'
-description: 'Builds minimal ORT using either a reduced Ops config file (downloaded from test_data artifact) or globally allowed types. Runs tests and uploads a binary size report.' # Updated description
+description: 'Builds minimal ORT using either a reduced Ops config file (downloaded from test_data artifact) or globally allowed types. Runs tests and uploads a binary size report.'
 inputs:
-  reduced-ops-config-file:
-    description: 'Path (relative to downloaded test_data artifact) to the reduced Ops config file. Mutually exclusive with `globally_allowed_types`.'
-    required: false
-    default: '' # Default to empty string
-  globally_allowed_types:
-    description: 'Comma-separated list of globally allowed types (e.g., "float,int32_t"). If specified, a config file is generated, and artifact download is skipped. Mutually exclusive with `reduced-ops-config-file`.' # New input
+  reduced-ops-config-file:
+    description: 'Path (relative to downloaded test_data artifact) to the reduced Ops config file. Mutually exclusive with `globally_allowed_types`.'
     required: false
-    default: '' # New input default
-  enable-type-reduction:
-    description: 'Build with type reduction enabled. Note: Type reduction happens based on the config file content (`--enable_type_reduction` during config creation), not this flag directly during the minimal build.' # Clarified description
-    required: false
-    default: 'false' # String 'false' for getBooleanInput
-  enable-custom-ops:
-    description: 'Build with custom op support enabled.'
-    required: false
-    default: 'false' # String 'false' for getBooleanInput
-  skip-model-tests:
-    description: 'Skip running the E2E model tests with onnx_test_runner.'
-    required: false
-    default: 'false' # String 'false' for getBooleanInput
-  binary-size-report-name-prefix:
-    description: 'Optional prefix for the uploaded binary size artifact name.'
-    required: false
-    default: ''
-  size-threshold:
-    description: 'Optional threshold in bytes passed to check_build_binary_size.py.'
-    required: false
+    default: ''
+  globally_allowed_types:
+    description: 'Comma-separated list of globally allowed types (e.g., "float,int32_t"). If specified, a config file is generated, and artifact download is skipped. Mutually exclusive with `reduced-ops-config-file`.'
+    required: false
+    default: ''
+  enable-type-reduction:
+    description: 'Build with type reduction enabled. Note: Type reduction happens based on the config file content (`--enable_type_reduction` during config creation), not this flag directly during the minimal build.'
+    required: false
+    default: 'false'
+  enable-custom-ops:
+    description: 'Build with custom op support enabled.'
+    required: false
+    default: 'false'
+  skip-model-tests:
+    description: 'Skip running the E2E model tests with onnx_test_runner.'
+    required: false
+    default: 'false'
+  binary-size-report-name-prefix:
+    description: 'Optional prefix for the uploaded binary size artifact name.'
+    required: false
+    default: ''
+  size-threshold:
+    description: 'Optional threshold in bytes passed to check_build_binary_size.py.'
+    required: false
 runs:
-  using: 'node20'
-  main: 'dist/index.js'
+  using: 'node20'
+  main: 'dist/index.js'
