@@ -20,6 +20,9 @@ inputs:
     description: 'Optional prefix for the uploaded binary size artifact name.'
     required: false
     default: ''
+  size-threshold:
+    description: 'Optional threshold in bytes passed to check_build_binary_size.py.'
+    required: false
 runs:
   using: 'node20'
   main: 'dist/index.js'
