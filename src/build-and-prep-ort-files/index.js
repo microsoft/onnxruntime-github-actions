@@ -127,8 +127,8 @@ async function main() {
         // from the workspace root might cause Python to import the local 'onnxruntime'
         // source directory instead of the newly installed package. Changing the CWD
         // to a neutral location like '/tmp' prevents this import conflict.
-        const pythonScriptCwd = '/tmp';
-        await fs.mkdir(pythonScriptCwd, { recursive: true }); // Ensure /tmp exists
+        const pythonScriptCwd = os.tmpdir();
+        await fs.mkdir(pythonScriptCwd, { recursive: true }); // Ensure temporary directory exists
         core.info(`Setting CWD for subsequent Python scripts to: ${pythonScriptCwd}`);
 
 
