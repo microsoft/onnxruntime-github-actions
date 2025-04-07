@@ -183,7 +183,7 @@ async function main() {
         // --- Check Binary Size ---
         core.startGroup('Check Binary Size');
         const checkSizeScript = path.join(workspaceDir, 'tools/ci_build/github/linux/ort_minimal/check_build_binary_size.py');
-        const arch = os.machine().toLowerCase(); // e.g., x64, arm64
+        const arch = os.arch().toLowerCase(); // e.g., x64, arm64
         const platform = os.platform().toLowerCase(); // e.g., linux, darwin, win32
         const osName = platform === 'linux' ? 'Linux' : platform; // Map 'linux' to 'Linux' as used in script
 
