@@ -15,32 +15,32 @@ const os = require('os');
  */
 async function runCommand(command, args = [], options = {}) {
     // ... (runCommand function remains the same) ...
-    const effectiveOptions = {
-        cwd: process.env.GITHUB_WORKSPACE, // Default working directory
-        ignoreReturnCode: false, // Throw error on failure by default
-        silent: false, // Show command output by default
-        listeners: {
-            stdout: (data) => { core.info(data.toString().trim()); },
-            stderr: (data) => { core.warning(data.toString().trim()); } // Log stderr as warning by default
-        },
-        ...options
-    };
-    const cwdString = effectiveOptions.cwd === process.env.GITHUB_WORKSPACE ? 'default workspace' : effectiveOptions.cwd;
-    core.info(`Executing in ${cwdString}: ${command} ${args.map(arg => arg.includes(' ') ? `"${arg}"` : arg).join(' ')}`); // Basic quoting for display
-    try {
-        const { exitCode, stdout, stderr } = await exec.getExecOutput(command, args, effectiveOptions);
+    const effectiveOptions = {
+        cwd: process.env.GITHUB_WORKSPACE, // Default working directory
+        ignoreReturnCode: false, // Throw error on failure by default
+        silent: false, // Show command output by default
+        listeners: {
+            stdout: (data) => { core.info(data.toString().trim()); },
+            stderr: (data) => { core.warning(data.toString().trim()); } // Log stderr as warning by default
+        },
+        ...options
+    };
+    const cwdString = effectiveOptions.cwd === process.env.GITHUB_WORKSPACE ? 'default workspace' : effectiveOptions.cwd;
+    core.info(`Executing in ${cwdString}: ${command} ${args.map(arg => arg.includes(' ') ? `"${arg}"` : arg).join(' ')}`); // Basic quoting for display
+    try {
+        const { exitCode, stdout, stderr } = await exec.getExecOutput(command, args, effectiveOptions);
 
-        if (exitCode !== 0 && !effectiveOptions.ignoreReturnCode) {
-             core.error(`Stderr: ${stderr}`);
-             throw new Error(`Command exited with code ${exitCode}: ${command} ${args.join(' ')}`);
-        }
-        core.info(`Finished: ${command} ${args.join(' ')}`);
-        return { exitCode, stdout, stderr };
-    } catch (error) {
-        core.error(`Error executing command: ${command} ${args.join(' ')} in ${cwdString}`);
-        core.error(error);
-        throw new Error(`Command execution failed: ${error.message || error}`);
-    }
+        if (exitCode !== 0 && !effectiveOptions.ignoreReturnCode) {
+             core.error(`Stderr: ${stderr}`);
+             throw new Error(`Command exited with code ${exitCode}: ${command} ${args.join(' ')}`);
+        }
+        core.info(`Finished: ${command} ${args.join(' ')}`);
+        return { exitCode, stdout, stderr };
+    } catch (error) {
+        core.error(`Error executing command: ${command} ${args.join(' ')} in ${cwdString}`);
+        core.error(error);
+        throw new Error(`Command execution failed: ${error.message || error}`);
+    }
 }
 
 
@@ -51,18 +51,18 @@ async function runCommand(command, args = [], options = {}) {
  */
 async function checkPathExists(pathToCheck) {
     // ... (checkPathExists function remains the same) ...
-    try {
-        await fs.access(pathToCheck);
-        core.info(`Path exists: ${pathToCheck}`);
-        return true;
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            core.info(`Path does not exist: ${pathToCheck}`);
-            return false;
-        }
-        core.warning(`Error checking path ${pathToCheck}: ${error.message}`);
-        return false; // Assume not accessible on other errors
-    }
+    try {
+        await fs.access(pathToCheck);
+        core.info(`Path exists: ${pathToCheck}`);
+        return true;
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            core.info(`Path does not exist: ${pathToCheck}`);
+            return false;
+        }
+        core.warning(`Error checking path ${pathToCheck}: ${error.message}`);
+        return false; // Assume not accessible on other errors
+    }
 }
 
 

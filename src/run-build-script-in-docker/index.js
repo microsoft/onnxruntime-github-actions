@@ -9,49 +9,49 @@ const { executeCommand, checkPathExists } = require('../common/utils'); // Impor
 
 // List of known EP names (keep local or move to common if used elsewhere?) - Keep local for now
 const KNOWN_EPS = new Set([
-  'acl',
-  'armnn',
-  'azure',
-  'cann',
-  'coreml',
-  'cuda',
-  'dml',
-  'dnnl',
-  'migraphx',
-  'nnapi',
-  'openvino',
-  'qnn',
-  'rknpu',
-  'rocm',
-  'snpe',
-  'tensorrt',
-  'vitisai',
-  'vsinpu',
-  'webgpu',
-  'webnn',
-  'xnnpack',
+  'acl',
+  'armnn',
+  'azure',
+  'cann',
+  'coreml',
+  'cuda',
+  'dml',
+  'dnnl',
+  'migraphx',
+  'nnapi',
+  'openvino',
+  'qnn',
+  'rknpu',
+  'rocm',
+  'snpe',
+  'tensorrt',
+  'vitisai',
+  'vsinpu',
+  'webgpu',
+  'webnn',
+  'xnnpack',
 ]);
 const knownEpsString = Array.from(KNOWN_EPS).sort().join(', ');
 
 // checkGpu uses exec directly for failure tolerance/specific handling, keep as is or adapt helper?
 // Keep direct exec here as error handling is specific (warning, not throwing)
 async function checkGpu() {
-  let hasGpu = false;
-  try {
-    const options = { ignoreReturnCode: true, silent: true }; // Don't fail action if nvidia-smi not found
-    core.info('Checking for NVIDIA GPU using nvidia-smi...');
-    // Use direct exec here because we want to check the exit code and *not* throw
-    const exitCode = await require('@actions/exec').exec('nvidia-smi', [], options);
-    if (exitCode === 0) {
-      core.info('NVIDIA GPU detected via nvidia-smi.');
-      hasGpu = true;
-    } else {
-      core.warning(`nvidia-smi command failed or not found (exit code: ${exitCode}). Assuming no GPU.`);
-    }
-  } catch (error) {
-    core.warning(`Error trying to execute nvidia-smi: ${error.message}. Assuming no GPU.`);
-  }
-  return hasGpu;
+  let hasGpu = false;
+  try {
+    const options = { ignoreReturnCode: true, silent: true }; // Don't fail action if nvidia-smi not found
+    core.info('Checking for NVIDIA GPU using nvidia-smi...');
+    // Use direct exec here because we want to check the exit code and *not* throw
+    const exitCode = await require('@actions/exec').exec('nvidia-smi', [], options);
+    if (exitCode === 0) {
+      core.info('NVIDIA GPU detected via nvidia-smi.');
+      hasGpu = true;
+    } else {
+      core.warning(`nvidia-smi command failed or not found (exit code: ${exitCode}). Assuming no GPU.`);
+    }
+  } catch (error) {
+    core.warning(`Error trying to execute nvidia-smi: ${error.message}. Assuming no GPU.`);
+  }
+  return hasGpu;
 }
 
 // --- Helper Function to Generate Test Summary ---
@@ -211,7 +211,7 @@ async function run() {
             for (const ep of requestedEps) {
                 if (KNOWN_EPS.has(ep)) {
                     const flag = `--use_${ep}`;
-                    core.info(`  Adding flag: ${flag}`);
+                    core.info(`  Adding flag: ${flag}`);
                     epFlags.push(flag);
                 } else {
                     core.setFailed(`Unknown EP: '${ep}'. Allowed: ${knownEpsString}`);
@@ -288,8 +288,7 @@ async function run() {
         if (gpuAvailable) dockerArgs.push('--gpus', 'all');
         core.info('Adding standard volume mounts: workspace, runner temp, host cache.');
         dockerArgs.push('--volume', `${workspaceDir}:/onnxruntime_src`);
-        // Mount the parent of the build output dir for simplicity
-        dockerArgs.push('--volume', `${runnerTempDir}/build:/onnxruntime_src/build`); // Mount $RUNNER_TEMP/build -> /onnxruntime_src/build
+        dockerArgs.push('--volume', `${runnerTempDir}:/onnxruntime_src/build`);
         dockerArgs.push('--volume', `${hostCacheDir}:${containerHomeDir}/.cache`); // Use determined container home
         if (lowerCaseRunMode === 'test') {
             /* ... test volume mount logic ... */ core.info('Mode is "test", checking test data mounts.');
