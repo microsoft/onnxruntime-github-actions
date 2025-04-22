@@ -1,0 +1,22 @@
+name: 'Format and Lint Check'
+description: 'Installs LLVM/Clang, checks C/C++/Shell formatting and permissions on Linux.'
+
+inputs:
+  llvm-version:
+    description: 'Required. The LLVM release tag to download (e.g., llvmorg-18.1.8).'
+    required: true
+  llvm-sha256-hash:
+    description: 'Required. The expected SHA256 hash of the LLVM Linux X64 tar.xz archive for verification.'
+    required: true
+  source-dirs:
+    description: 'Optional. Space-separated list of directories or glob patterns to search for files (relative to workspace root).'
+    required: false
+    default: '.' # Defaults to searching the entire workspace root
+  ignore-patterns:
+    description: 'Optional. Newline-separated list of glob patterns to ignore during file search (e.g., build/**\n**/external/**).'
+    required: false
+    default: ''
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js' # This will point to the built file later
