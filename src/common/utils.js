@@ -5,6 +5,8 @@ const exec = require('@actions/exec');
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const glob = require('@actions/glob');
+const { XMLParser, XMLValidator } = require('fast-xml-parser');
 
 // --- Execution Helper ---
 
@@ -193,6 +195,169 @@ async function checkPathExists(filePath) {
   }
 }
 
+// --- GitHub Actions Specific Helpers ---
+
+async function generateTestSummary(baseDir) {
+  core.startGroup('Generate Test Result Summary');
+  const xmlPattern = path.join(baseDir, '**/*.results.xml').replace(/\\/g, '/'); // Normalize for glob
+  let totalTests = 0;
+  let totalFailures = 0;
+  let totalErrors = 0;
+  let totalSkipped = 0;
+  let filesProcessed = 0;
+  const failedFiles = [];
+  const processedFiles = [];
+
+  // Configure the XML parser
+  const parserOptions = {
+      ignoreAttributes: false,    // We need attributes
+      attributeNamePrefix: "",    // Use attribute names directly (e.g., tests, not @​_tests)
+      parseAttributeValue: true,  // Attempt to convert attribute values to numbers/booleans
+      allowBooleanAttributes: true, // If boolean attributes are used (e.g., disabled="true")
+      trimValues: true,           // Trim whitespace from values
+      stopNodes: ["*.testcase"]   // Optimization: Stop parsing deeper inside testcase tags
+  };
+  const parser = new XMLParser(parserOptions);
+
+  core.info(`Searching for test result files matching: ${xmlPattern}`);
+
+  try {
+    // Check if base directory exists first
+    await fs.access(baseDir); // Throws if doesn't exist or no permissions
+    core.info(`Base directory ${baseDir} exists.`);
+
+    const globber = await glob.create(xmlPattern, { followSymbolicLinks: false });
+    for await (const file of globber.globGenerator()) {
+        filesProcessed++;
+        const fileName = path.relative(baseDir, file) || path.basename(file); // Get relative path for display
+        processedFiles.push(fileName);
+        core.debug(`Processing file: ${file}`);
+        let fileContent;
+
+        try {
+            // 1. Read File
+            fileContent = await fs.readFile(file, 'utf8');
+
+            // 2. Validate XML Syntax (optional but recommended)
+            const validationResult = XMLValidator.validate(fileContent);
+            if (validationResult !== true) {
+                // Log detailed validation error
+                const err = validationResult.err;
+                core.warning(`Invalid XML syntax in ${fileName}: ${err.msg} (Line: ${err.line}, Col: ${err.col})`);
+                failedFiles.push(`${fileName} (syntax error)`);
+                continue; // Skip to next file
+            }
+
+            // 3. Parse XML
+            const result = parser.parse(fileContent);
+
+            // 4. Find top-level tag (<testsuites> or <testsuite>) and its attributes
+            // fast-xml-parser creates an object where the root tag is the key
+            const rootKey = Object.keys(result)[0]; // Get the first key (should be the root tag)
+            const topLevelTag = result[rootKey];
+
+            if (!rootKey || !topLevelTag) {
+                core.warning(`Could not find expected root tag (e.g., <testsuites>) in ${fileName}.`);
+                failedFiles.push(`${fileName} (structure error - no root)`);
+                continue; // Skip to next file
+            }
+
+             // Check if it's an array (multiple testsuite tags under testsuites) or single object
+            // We only care about the *summary* attributes on the top-level tag itself
+            const attrs = topLevelTag; // Attributes are properties with parseAttributeValue=true
+
+            if (typeof attrs !== 'object' || attrs === null) {
+                 core.warning(`Expected attributes object not found on root tag <${rootKey}> in ${fileName}.`);
+                 failedFiles.push(`${fileName} (structure error - no attributes)`);
+                 continue;
+            }
+
+
+            // 5. Extract counts safely (handle missing attributes, rely on parseAttributeValue)
+            const tests = Number(attrs.tests || 0);
+            const failures = Number(attrs.failures || 0);
+            const errors = Number(attrs.errors || 0);
+            // JUnit often uses 'disabled' but 'skipped' is also common. Prioritize 'skipped'.
+            const skipped = Number(attrs.skipped || attrs.disabled || 0);
+
+            // Validate that extracted values are numbers
+            if (isNaN(tests) || isNaN(failures) || isNaN(errors) || isNaN(skipped)) {
+                 core.warning(`Non-numeric test counts found in attributes of root tag <${rootKey}> in ${fileName}. Found: tests=${attrs.tests}, failures=${attrs.failures}, errors=${attrs.errors}, skipped/disabled=${attrs.skipped || attrs.disabled}`);
+                 failedFiles.push(`${fileName} (attribute format error)`);
+                 continue; // Skip counts from this file
+            }
+
+            // 6. Add to totals
+            totalTests += tests;
+            totalFailures += failures;
+            totalErrors += errors;
+            totalSkipped += skipped;
+            core.debug(
+                ` -> Parsed Counts - Tests: ${tests}, Failures: ${failures}, Errors: ${errors}, Skipped/Disabled: ${skipped}`
+            );
+
+        } catch (error) {
+            // Catch errors from readFile, XMLValidator.validate, or parser.parse
+            // Log specific error codes if available
+            const errorCode = error.code ? ` (${error.code})` : '';
+            core.warning(`Error processing file ${fileName}${errorCode}: ${error.message}`);
+            failedFiles.push(`${fileName} (processing error)`);
+        }
+    } // End for loop
+
+    // --- Generate Summary Markdown ---
+    if (filesProcessed === 0) {
+      core.info('No test result XML files found.');
+    } else {
+      core.info(`Processed ${filesProcessed} test result XML file(s).`);
+      let summaryMarkdown = `## Test Results Summary\n\n`;
+      summaryMarkdown += `Processed **${filesProcessed}** \`*.results.xml\` file(s) from \`${path.basename(
+        baseDir
+      )}\`.\n\n`;
+
+      const totalProblems = totalFailures + totalErrors;
+      const overallStatus = totalProblems === 0 ? '✅ Passed' : '❌ Failed';
+
+      summaryMarkdown += `| Metric          | Count |\n`;
+      summaryMarkdown += `| --------------- | ----: |\n`;
+      summaryMarkdown += `| **Total Tests** | ${totalTests} |\n`;
+      summaryMarkdown += `| Failures        | ${
+        totalFailures > 0 ? `**${totalFailures}** ❌` : totalFailures
+      } |\n`;
+      summaryMarkdown += `| Errors          | ${totalErrors > 0 ? `**${totalErrors}** ❌` : totalErrors} |\n`;
+      summaryMarkdown += `| Skipped         | ${totalSkipped} |\n`;
+      summaryMarkdown += `| **Overall** | **${overallStatus}** |\n\n`;
+
+      if (failedFiles.length > 0) {
+        summaryMarkdown += `⚠️ **Issues processing some files:**\n`;
+        summaryMarkdown += failedFiles.map((f) => `- \`${f}\``).join('\n') + '\n\n';
+      }
+
+      summaryMarkdown += `<details><summary>Processed Files (${processedFiles.length})</summary>\n\n`;
+      summaryMarkdown += processedFiles.map((f) => `- \`${f}\``).join('\n') + '\n';
+      summaryMarkdown += `</details>\n`;
+
+      // Add to GitHub Job Summary
+      try {
+        await core.summary.addRaw(summaryMarkdown, true).write();
+        core.info("Test result summary added to GitHub Job Summary.");
+      } catch (summaryError) {
+        core.error(`Failed to write job summary: ${summaryError.message}`);
+      }
+    }
+
+  } catch (error) {
+    // Handle errors accessing baseDir or creating globber
+    if (error.code === 'ENOENT') {
+      core.info(`Test result base directory ${baseDir} not found. Skipping summary generation.`);
+    } else {
+      core.error(`Error reading test result directory ${baseDir} or globbing files: ${error.message}`);
+    }
+  } finally {
+    core.endGroup();
+  }
+}
+
 // Export all utility functions
 module.exports = {
   executeCommand,
@@ -203,4 +368,5 @@ module.exports = {
   getPlatformIdentifier,
   getArchIdentifier,
   checkPathExists,
+  generateTestSummary,
 };

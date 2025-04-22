@@ -5,7 +5,7 @@ const fs = require('node:fs/promises');
 const glob = require('@actions/glob'); // Ensure glob is required
 
 // Import shared utilities
-const { executeCommand, checkPathExists } = require('../common/utils'); // Import helpers
+const { executeCommand, checkPathExists, generateTestSummary } = require('../common/utils');
 
 // List of known EP names (keep local or move to common if used elsewhere?) - Keep local for now
 const KNOWN_EPS = new Set([
@@ -54,98 +54,7 @@ async function checkGpu() {
   return hasGpu;
 }
 
-// --- Helper Function to Generate Test Summary ---
-async function generateTestSummary(baseDir) {
-    core.startGroup('Generate Test Result Summary');
-    const xmlPattern = path.join(baseDir, '**/*.results.xml').replace(/\\/g, '/'); // Normalize for glob
-    let totalTests = 0;
-    let totalFailures = 0;
-    let totalErrors = 0;
-    let totalSkipped = 0;
-    let filesProcessed = 0;
-    const failedFiles = [];
-    const processedFiles = [];
 
-    core.info(`Searching for test result files matching: ${xmlPattern}`);
-
-    try {
-        // Check if base directory exists first
-        await fs.access(baseDir);
-        core.info(`Base directory ${baseDir} exists.`);
-
-        const globber = await glob.create(xmlPattern, { followSymbolicLinks: false });
-        for await (const file of globber.globGenerator()) {
-            filesProcessed++;
-            const fileName = path.relative(baseDir, file) || path.basename(file); // Get relative path for display
-            processedFiles.push(fileName);
-            core.debug(`Processing file: ${file}`);
-            try {
-                const content = await fs.readFile(file, 'utf8');
-                // Simple Regex to find the first <testsuite> or <testsuites> tag and extract counts
-                // It assumes attributes are present and well-formed. Handles optional skipped/disabled.
-                const testsuiteRegex = /<testsuite(?:s)?\s+[^>]*?tests="(\d+)"[^>]*?failures="(\d+)"[^>]*?errors="(\d+)"(?:[^>]*?(?:skipped|disabled)="(\d+)")?/;
-                const match = content.match(testsuiteRegex);
-
-                if (match) {
-                    totalTests += parseInt(match[1] || '0', 10);
-                    totalFailures += parseInt(match[2] || '0', 10);
-                    totalErrors += parseInt(match[3] || '0', 10);
-                    totalSkipped += parseInt(match[4] || '0', 10); // Group 4 is skipped/disabled
-                    core.debug(` -> Found Tests: ${match[1]}, Failures: ${match[2]}, Errors: ${match[3]}, Skipped/Disabled: ${match[4] || '0'}`);
-                } else {
-                    core.warning(`Could not find parsable <testsuite(s)> tag with counts in ${fileName}`);
-                    failedFiles.push(`${fileName} (parse error)`);
-                }
-            } catch (readError) {
-                core.warning(`Error reading test result file ${fileName}: ${readError.message}`);
-                failedFiles.push(`${fileName} (read error)`);
-            }
-        }
-
-        if (filesProcessed === 0) {
-            core.info('No test result XML files found.');
-        } else {
-            core.info(`Processed ${filesProcessed} test result XML file(s).`);
-            // --- Generate Job Summary ---
-            let summaryMarkdown = `## Test Results Summary\n\n`;
-            summaryMarkdown += `Processed **${filesProcessed}** \`*.results.xml\` file(s) from \`${path.basename(baseDir)}\`.\n\n`; // Use basename for clarity
-
-            const totalProblems = totalFailures + totalErrors;
-            const overallStatus = totalProblems === 0 ? '✅ Passed' : '❌ Failed';
-
-            summaryMarkdown += `| Metric          | Count |\n`;
-            summaryMarkdown += `| --------------- | ----: |\n`;
-            summaryMarkdown += `| **Total Tests** | ${totalTests} |\n`;
-            summaryMarkdown += `| Failures        | ${totalFailures > 0 ? `**${totalFailures}** ❌` : totalFailures} |\n`;
-            summaryMarkdown += `| Errors          | ${totalErrors > 0 ? `**${totalErrors}** ❌` : totalErrors} |\n`;
-            summaryMarkdown += `| Skipped         | ${totalSkipped} |\n`;
-            summaryMarkdown += `| **Overall** | **${overallStatus}** |\n\n`;
-
-
-            if (failedFiles.length > 0) {
-                summaryMarkdown += `⚠️ **Issues processing some files:**\n`;
-                summaryMarkdown += failedFiles.map(f => `- \`${f}\``).join('\n') + '\n\n';
-            }
-
-            summaryMarkdown += `<details><summary>Processed Files (${processedFiles.length})</summary>\n\n`;
-            summaryMarkdown += processedFiles.map(f => `- \`${f}\``).join('\n') + '\n';
-            summaryMarkdown += `</details>\n`;
-
-            // Add to GitHub Job Summary (append=true ensures it adds even if step failed)
-            await core.summary.addRaw(summaryMarkdown, true).write();
-            core.info("Test result summary added to GitHub Job Summary.");
-        }
-
-    } catch (error) {
-         if (error.code === 'ENOENT') {
-            core.info(`Test result base directory ${baseDir} not found. Skipping summary generation.`);
-        } else {
-            core.warning(`Error accessing test result directory ${baseDir} or globbing files: ${error.message}`);
-        }
-    } finally {
-        core.endGroup();
-    }
-}
 
 
 async function run() {
@@ -156,21 +65,21 @@ async function run() {
         core.setFailed('RUNNER_TEMP environment variable not set.'); // Fail early if this is missing
         return;
     }
-    const buildOutputPath = path.join(runnerTempDir, 'build', buildConfig);
+    const buildOutputPath = path.join(runnerTempDir, buildConfig);
 
     try {
-        // --- Get All Inputs (unchanged) ---
+        // --- Get All Inputs ---
         const dockerImage = core.getInput('docker_image', { required: true });
         // buildConfig already obtained
         const runMode = core.getInput('mode', { required: true });
         const containerUser = core.getInput('container_user');
         const epInputString = core.getInput('execution_providers');
         const extraBuildFlags = core.getInput('extra_build_flags');
-        const pythonPathPrefix = core.getInput('python_path_prefix');
+        const pythonPathPrefix = core.getInput('python_path_prefix'); // Get prefix input
         const allowOpset = core.getInput('allow_released_opset_only');
         const nightlyBuild = core.getInput('nightly_build');
 
-        // --- Validate Mode (unchanged) ---
+        // --- Validate Mode ---
         let buildPyArg;
         let shouldPassCacheVars = false;
         const lowerCaseRunMode = runMode.toLowerCase();
@@ -200,14 +109,14 @@ async function run() {
             core.info('Detected Python binding build based on extra_build_flags.');
         }
 
-        // --- Process Execution Providers Input (unchanged) ---
+        // --- Process Execution Providers Input ---
         const epFlags = [];
         const requestedEps = epInputString
             .toLowerCase()
             .split(' ')
             .filter((ep) => ep.trim());
         if (requestedEps.length > 0) {
-            /* ... EP flag logic ... */ core.info(`Requested EPs: ${requestedEps.join(', ')}`);
+            core.info(`Requested EPs: ${requestedEps.join(', ')}`);
             for (const ep of requestedEps) {
                 if (KNOWN_EPS.has(ep)) {
                     const flag = `--use_${ep}`;
@@ -220,31 +129,28 @@ async function run() {
             }
         }
 
-        // --- Get Runner Context/Defaults (unchanged) ---
+        // --- Get Runner Context/Defaults ---
         const workspaceDir = process.env.GITHUB_WORKSPACE;
-        // runnerTempDir already obtained
         const homeDir = os.homedir();
         const homeOnnxDir = path.join(homeDir, '.onnx');
         const hostCacheDir = path.join(homeDir, '.cache');
-        const containerHomeDir = containerUser ? `/home/${containerUser}` : '/root'; // Adjust based on user? Defaulting home might be tricky.
+        const containerHomeDir = containerUser ? `/home/${containerUser}` : '/root';
         if (!workspaceDir) throw new Error('GITHUB_WORKSPACE not set.');
-        // runnerTempDir checked earlier
 
-        // --- Check Host Paths (uses checkPathExists util) ---
+        // --- Check Host Paths ---
         const hostDataOnnxPath = '/data/onnx';
         const hostDataModelsPath = '/data/models';
-        const dataOnnxExists = await checkPathExists(hostDataOnnxPath); // USE UTIL
-        const dataModelsExists = await checkPathExists(hostDataModelsPath); // USE UTIL
+        const dataOnnxExists = await checkPathExists(hostDataOnnxPath);
+        const dataModelsExists = await checkPathExists(hostDataModelsPath);
         const enableOnnxTestsFlag = dataOnnxExists && dataModelsExists;
         core.info(`--enable_onnx_tests will be ${enableOnnxTestsFlag ? 'added' : 'skipped'}.`);
 
-        // --- Check for GPU (uses local checkGpu) ---
+        // --- Check for GPU ---
         const gpuAvailable = await checkGpu();
 
-        // --- Construct build.py Command (unchanged) ---
+        // --- Construct build.py command part (without prefix) ---
         const buildPyBaseArgs = [
-            pythonPathPrefix,
-            'python3',
+            'python3', // Prefix removed from here
             'tools/ci_build/build.py',
             `--build_dir build/${buildConfig}`, // Relative path inside container
             `--config ${buildConfig}`,
@@ -259,22 +165,41 @@ async function run() {
             extraBuildFlags,
         ];
         const buildPyBase = buildPyBaseArgs.filter((part) => part).join(' ');
-        const fullBuildPyCommand = `${buildPyBase} ${buildPyArg}`;
-        core.debug(`Constructed build.py command: ${fullBuildPyCommand}`);
+        const buildPyCommandPart = `${buildPyBase} ${buildPyArg}`;
+        core.debug(`Build.py command part: ${buildPyCommandPart}`);
 
-        // --- Construct the full command to run inside Docker ---
-        let fullDockerCommand = `set -ex; ${fullBuildPyCommand}`;
+        // --- Construct the sequence of commands to run inside Docker ---
+        let commandSequence = [];
+
+        // Add python requirements install if needed
         if (isPythonBuild) {
             const pythonRequirementsPath = 'tools/ci_build/github/linux/python/requirements.txt';
-            const installReqsCommand = `python3 -m pip install --user -r ${pythonRequirementsPath}`;
-            fullDockerCommand = `set -ex; ${installReqsCommand} && ${fullBuildPyCommand}`;
-            core.info(`Prepending python requirements installation for Python build.`);
-            core.debug(`Full command inside Docker: ${fullDockerCommand}`);
-        } else {
-            core.debug(`Full command inside Docker: ${fullDockerCommand}`);
+            const installReqsCommandPart = `python3 -m pip install --user -r ${pythonRequirementsPath}`;
+            commandSequence.push(installReqsCommandPart);
+            core.info(`Adding python requirements installation command.`);
         }
 
-        // --- Ensure Host Cache Directory Exists (unchanged) ---
+        // Add the main build.py command
+        commandSequence.push(buildPyCommandPart);
+
+        // Join commands with &&
+        let combinedCommands = commandSequence.join(' && ');
+
+        // Prepend the pythonPathPrefix if provided, applying it to the whole sequence
+        let fullDockerCommand;
+        const trimmedPrefix = pythonPathPrefix ? pythonPathPrefix.trim() : '';
+        if (trimmedPrefix !== '') {
+            core.info(`Prepending python path prefix/environment setup: ${trimmedPrefix}`);
+            // Assume pythonPathPrefix is a valid shell command/assignment prefix like 'export PATH=...' or 'VAR=val'
+            fullDockerCommand = `set -ex; ${trimmedPrefix} && ${combinedCommands}`;
+        } else {
+            fullDockerCommand = `set -ex; ${combinedCommands}`;
+        }
+
+        core.debug(`Full command sequence inside Docker: ${fullDockerCommand}`);
+
+
+        // --- Ensure Host Cache Directory Exists ---
         core.info(`Ensuring host cache directory exists: ${hostCacheDir}`);
         try {
             await fs.mkdir(hostCacheDir, { recursive: true });
@@ -283,15 +208,15 @@ async function run() {
             core.warning(`Could not ensure host directory ${hostCacheDir} exists: ${error.message}.`);
         }
 
-        // --- Construct Docker Run Arguments (unchanged logic, uses modified command) ---
+        // --- Construct Docker Run Arguments ---
         const dockerArgs = ['run', '--rm'];
         if (gpuAvailable) dockerArgs.push('--gpus', 'all');
-        core.info('Adding standard volume mounts: workspace, runner temp, host cache.');
+        core.info('Adding standard volume mounts: workspace, runner temp build, host cache.');
         dockerArgs.push('--volume', `${workspaceDir}:/onnxruntime_src`);
         dockerArgs.push('--volume', `${runnerTempDir}:/onnxruntime_src/build`);
         dockerArgs.push('--volume', `${hostCacheDir}:${containerHomeDir}/.cache`); // Use determined container home
         if (lowerCaseRunMode === 'test') {
-            /* ... test volume mount logic ... */ core.info('Mode is "test", checking test data mounts.');
+            core.info('Mode is "test", checking test data mounts.');
             if (dataOnnxExists) {
                 dockerArgs.push('--volume', `${hostDataOnnxPath}:/data/onnx:ro`);
             } else {
@@ -317,7 +242,7 @@ async function run() {
         dockerArgs.push('-e', `ALLOW_RELEASED_ONNX_OPSET_ONLY=${allowOpset}`);
         dockerArgs.push('-e', `NIGHTLY_BUILD=${nightlyBuild}`);
         if (shouldPassCacheVars) {
-            /* ... cache var passing logic ... */ core.info('Passing cache env vars into container.');
+            core.info('Passing cache env vars into container.');
             const cacheUrl = process.env.ACTIONS_CACHE_URL || '';
             const runtimeToken = process.env.ACTIONS_RUNTIME_TOKEN || '';
             if (cacheUrl) core.setSecret(cacheUrl);
@@ -326,46 +251,41 @@ async function run() {
             else core.info('ACTIONS_CACHE_URL not found.');
             if (runtimeToken) dockerArgs.push('-e', `ACTIONS_RUNTIME_TOKEN=${runtimeToken}`);
             else core.info('ACTIONS_RUNTIME_TOKEN not found.');
-            // Map RUNNER_TEMP inside container correctly based on volume mount
             dockerArgs.push('-e', 'RUNNER_TEMP=/onnxruntime_src/build');
         } else {
             core.info('Skipping passing cache env vars.');
         }
         dockerArgs.push(dockerImage);
-        // Pass the potentially modified command
+        // Pass the full command sequence
         dockerArgs.push('/bin/bash', '-c', fullDockerCommand);
 
-        // --- Execute Docker Command (uses executeCommand util) ---
+        // --- Execute Docker Command ---
         core.info('Executing docker command...');
-        await executeCommand('docker', dockerArgs); // USE UTIL
+        await executeCommand('docker', dockerArgs);
         core.info('Docker command executed successfully.');
 
         // --- Verify Wheel Existence if --build_wheel was specified ---
         if (isWheelBuild) {
             core.startGroup('Verify Python Wheel Output');
-            const wheelDir = path.join(buildOutputPath, 'dist'); // Use buildOutputPath
+            const wheelDir = path.join(buildOutputPath, 'dist');
             core.info(`Checking for wheel file in: ${wheelDir}`);
             try {
                 await fs.access(wheelDir); // Check if directory exists first
                 core.info(`Directory ${wheelDir} exists. Searching for .whl file...`);
-                // Use glob to find files ending with .whl
                 const wheelGlobber = await glob.create(`${wheelDir}/*.whl`, { followSymbolicLinks: false });
                 let wheelFound = false;
                 for await (const file of wheelGlobber.globGenerator()) {
                     core.info(`Found wheel file: ${path.basename(file)}`);
                     wheelFound = true;
-                    // Usually only one wheel is expected, break after finding the first one
-                    break;
+                    break; // Usually only one wheel is expected
                 }
 
                 if (!wheelFound) {
                     core.warning(`Wheel directory ${wheelDir} exists, but no .whl file was found inside.`);
-                    // Consider setting failed if wheel is critical? core.setFailed(...)
                 }
             } catch (error) {
                 if (error.code === 'ENOENT') {
                     core.warning(`Wheel output directory ${wheelDir} does not exist.`);
-                    // Consider setting failed if wheel is critical? core.setFailed(...)
                 } else {
                     core.warning(`Error checking for wheel file in ${wheelDir}: ${error.message}`);
                 }
