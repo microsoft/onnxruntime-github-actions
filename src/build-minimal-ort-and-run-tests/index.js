@@ -14,7 +14,6 @@ const os = require('os');
  * @returns {Promise<{exitCode: number, stdout: string, stderr: string}>} Command output.
  */
 async function runCommand(command, args = [], options = {}) {
-    // ... (runCommand function remains the same) ...
     const effectiveOptions = {
         cwd: process.env.GITHUB_WORKSPACE, // Default working directory
         ignoreReturnCode: false, // Throw error on failure by default
@@ -50,7 +49,6 @@ async function runCommand(command, args = [], options = {}) {
  * @returns {Promise<boolean>} True if the path exists, false otherwise.
  */
 async function checkPathExists(pathToCheck) {
-    // ... (checkPathExists function remains the same) ...
     try {
         await fs.access(pathToCheck);
         core.info(`Path exists: ${pathToCheck}`);
@@ -241,7 +239,7 @@ async function main() {
             // Add threshold if provided (assuming the script takes it as an optional arg)
             const sizeThreshold = core.getInput('size-threshold');
             if (sizeThreshold) {
-                sizeCheckArgs.push('--threshold', sizeThreshold); // Adjust arg name if needed
+                sizeCheckArgs.push('--threshold', sizeThreshold);
             }
             await runCommand('python3', sizeCheckArgs);
         } catch (error) {

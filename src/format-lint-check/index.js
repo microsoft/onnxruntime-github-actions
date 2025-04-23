@@ -114,20 +114,17 @@ async function run() {
   const filesWithIncorrectPermissions = [];
 
   try {
-    // --- Get Inputs (remains the same) ---
     const llvmVersion = core.getInput('llvm-version', { required: true });
     const llvmHash = core.getInput('llvm-sha256-hash', { required: true });
     const ignorePatternsInput = core.getInput('ignore-patterns');
     const ignorePatterns = ignorePatternsInput ? ignorePatternsInput.split('\n').filter(p => p.trim()) : [];
 
-    // --- Setup LLVM/Clang (remains the same) ---
     core.startGroup(`Setup LLVM/Clang (${llvmVersion})`);
     const toolName = 'llvm';
     llvmToolPath = tc.find(toolName, llvmVersion);
     if (llvmToolPath) {
       core.info(`Found cached LLVM ${llvmVersion} at: ${llvmToolPath}`);
     } else {
-      // ... (Download, Verify Hash, Extract, Cache logic remains the same) ...
        core.info(`LLVM ${llvmVersion} not found in cache. Downloading...`);
        const archiveFileName = `LLVM-${llvmVersion}-Linux-X64.tar.xz`;
        const downloadUrl = `https://github.com/llvm/llvm-project/releases/download/llvmorg-${llvmVersion}/${archiveFileName}`;
@@ -222,21 +219,19 @@ async function run() {
         if (exitCode !== 0) {
           core.error(`clang-format check failed (exit code: ${exitCode}). Some files need formatting.`);
           core.warning(`clang-format output (potentially noisy):\n${clangFormatOutput}`);
-  
-          // Collect filenames for the error message (optional but helpful)
+            
           const filesList = filesToCheckFormatting
               .map(f => path.relative(process.env.GITHUB_WORKSPACE || '.', f))
-              .join(', '); // Join for a concise list, adjust if needed  
+              .join(', '); 
           
           core.setFailed(`Clang-format check failed. The following files need formatting: ${filesList}. Please run clang-format ${llvmVersion} locally.`);  
         } else {
-            core.info('clang-format check passed. All checked C/C++ files are correctly formatted.');
+          core.info('clang-format check passed. All checked C/C++ files are correctly formatted.');
         }
     }
     core.endGroup();
   } catch (error) {
     core.setFailed(`Action failed: ${error.message}`);
-    core.debug(error.stack); // Log stack trace on debug
   }
 }
 
