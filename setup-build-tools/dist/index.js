@@ -90,7 +90,7 @@ globstar while`,e,c,A,u,h),this.matchOne(e.slice(c),A.slice(u),t))return this.de
 
 `,C+=`| Rank | Time (s) | Suite Name      | Test Case Name  |
 `,C+=`| ---- | -------- | --------------- | --------------- |
-`,w.forEach((m,F)=>{let T=m.time.toFixed(3),v=m.suite.replace(/\|/g,"\\|"),z=m.case.replace(/\|/g,"\\|");C+=`| ${F+1} | ${T} | ${v} | ${z} |
+`,w.forEach((m,F)=>{let T=m.time.toFixed(3),v=m.suite.replace(/([\\|])/g,"\\$1"),z=m.case.replace(/([\\|])/g,"\\$1");C+=`| ${F+1} | ${T} | ${v} | ${z} |
 `}),C+=`
 `}else C+=`No individual test case times found to determine slowest tests.
 
