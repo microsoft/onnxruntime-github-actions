@@ -34,23 +34,6 @@ async function verifySHA256(filePath, expectedHash) {
   });
 }
 
-// --- File Permission Check Helpers ---
-/**
- * Checks if a file has execute permissions set for user, group, or others.
- * @param {string} filePath - The path to the file.
- * @returns {Promise<boolean>} - True if any execute bit is set, false otherwise.
- */
-async function hasExecutePermission(filePath) {
-  try {
-    const stats = await fs.stat(filePath);
-    // Check if any of the execute bits (owner, group, others) are set
-    // Mode is a number, use bitwise AND with 0o111 (binary 001 001 001)
-    return (stats.mode & 0o111) !== 0;
-  } catch (error) {
-    core.warning(`Could not stat file ${filePath} for permissions check: ${error.message}`);
-    return false; // Treat inaccessible files as not having execute permission for safety
-  }
-}
 
 /**
  * Finds C/C++ header and source files, filtering out paths matching ignore patterns.
@@ -110,8 +93,6 @@ async function run() {
 
   let llvmToolPath = '';
   let clangFormatPath = ''; // Will hold the absolute path or just 'clang-format' if in PATH
-  const filesNeedingFormatting = [];
-  const filesWithIncorrectPermissions = [];
 
   try {
     const llvmVersion = core.getInput('llvm-version', { required: true });
@@ -189,7 +170,7 @@ async function run() {
         // 1. Create a temporary file path
         const tempDir = process.env.RUNNER_TEMP || os.tmpdir(); // Prefer RUNNER_TEMP
         const tempFileName = `clang-format-files-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.txt`;
-        tempFilePath = path.join(tempDir, tempFileName);
+        const tempFilePath = path.join(tempDir, tempFileName);
         core.debug(`Creating temporary file list at: ${tempFilePath}`);
 
         // 2. Write the absolute file paths to the temporary file (one per line)
