@@ -405,8 +405,8 @@ async function generateTestSummary(baseDir) {
                 // Format time to 3 decimal places
                 const timeFormatted = test.time.toFixed(3);
                 // Escape pipe characters in names to prevent breaking markdown table
-                const suiteEscaped = test.suite.replace(/\|/g, '\\|');
-                const caseEscaped = test.case.replace(/\|/g, '\\|');
+                const suiteEscaped = test.suite.replace(/([\\|])/g, '\\$1');
+                const caseEscaped = test.case.replace(/([\\|])/g, '\\$1');
                 summaryMarkdown += `| ${index + 1} | ${timeFormatted} | ${suiteEscaped} | ${caseEscaped} |\n`;
             });
             summaryMarkdown += '\n';
