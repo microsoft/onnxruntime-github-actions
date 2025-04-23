@@ -13,7 +13,7 @@ const utils = require('../../src/common/utils'); // Adjust path as needed
 // Mock dependencies
 jest.mock('@actions/core');
 jest.mock('@actions/exec');
-
+jest.mock('@actions/glob'); 
 // Mocking crypto
 const mockUpdate = jest.fn();
 const mockDigest = jest.fn();

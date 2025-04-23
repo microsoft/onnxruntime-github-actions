@@ -1,0 +1,10 @@
+# Ignore build output and coverage reports
+build/
+coverage/
+
+# Ignore test C++ code if any
+test/cpp/
+
+# Ignore lock files (though Prettier usually skips them anyway)
+package-lock.json
+yarn.lock
