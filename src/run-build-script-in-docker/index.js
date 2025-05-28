@@ -46,10 +46,10 @@ async function checkGpu() {
       core.info('NVIDIA GPU detected via nvidia-smi.');
       hasGpu = true;
     } else {
-      core.warning(`nvidia-smi command failed or not found (exit code: ${exitCode}). Assuming no GPU.`);
+      core.info(`nvidia-smi command failed or not found (exit code: ${exitCode}). Assuming no GPU.`);
     }
   } catch (error) {
-    core.warning(`Error trying to execute nvidia-smi: ${error.message}. Assuming no GPU.`);
+    core.info(`Error trying to execute nvidia-smi: ${error.message}. Assuming no GPU.`);
   }
   return hasGpu;
 }
@@ -81,12 +81,10 @@ async function run() {
 
         // --- Validate Mode ---
         let buildPyArg;
-        let shouldPassCacheVars = false;
         const lowerCaseRunMode = runMode.toLowerCase();
         switch (lowerCaseRunMode) {
             case 'update':
                 buildPyArg = '--update';
-                shouldPassCacheVars = true;
                 break;
             case 'build':
                 buildPyArg = '--build';
@@ -99,7 +97,7 @@ async function run() {
                 return;
         }
         core.info(
-            `Running mode: ${runMode} (build.py arg: ${buildPyArg}), Pass Cache Vars: ${shouldPassCacheVars}, Container User: ${containerUser || 'Default'}`
+            `Running mode: ${runMode} (build.py arg: ${buildPyArg}), Container User: ${containerUser || 'Default'}`
         );
 
         // --- Check if Python bindings are being built ---
@@ -241,20 +239,7 @@ async function run() {
         dockerArgs.push('-w', '/onnxruntime_src');
         dockerArgs.push('-e', `ALLOW_RELEASED_ONNX_OPSET_ONLY=${allowOpset}`);
         dockerArgs.push('-e', `NIGHTLY_BUILD=${nightlyBuild}`);
-        if (shouldPassCacheVars) {
-            core.info('Passing cache env vars into container.');
-            const cacheUrl = process.env.ACTIONS_CACHE_URL || '';
-            const runtimeToken = process.env.ACTIONS_RUNTIME_TOKEN || '';
-            if (cacheUrl) core.setSecret(cacheUrl);
-            if (runtimeToken) core.setSecret(runtimeToken);
-            if (cacheUrl) dockerArgs.push('-e', `ACTIONS_CACHE_URL=${cacheUrl}`);
-            else core.info('ACTIONS_CACHE_URL not found.');
-            if (runtimeToken) dockerArgs.push('-e', `ACTIONS_RUNTIME_TOKEN=${runtimeToken}`);
-            else core.info('ACTIONS_RUNTIME_TOKEN not found.');
-            dockerArgs.push('-e', 'RUNNER_TEMP=/onnxruntime_src/build');
-        } else {
-            core.info('Skipping passing cache env vars.');
-        }
+        dockerArgs.push('-e', 'RUNNER_TEMP=/onnxruntime_src/build');
         dockerArgs.push(dockerImage);
         // Pass the full command sequence
         dockerArgs.push('/bin/bash', '-c', fullDockerCommand);
