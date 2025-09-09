@@ -32,6 +32,27 @@ async function getLatestCMakeVersion(githubToken) {
   }
 }
 
+function getCMakeBinDir(cmakePath, platform) {
+  if (platform === 'darwin') {
+    const macOsBinPath = path.join(cmakePath, 'CMake.app', 'Contents', 'bin');
+    if (fs.existsSync(macOsBinPath)) {
+      return macOsBinPath;
+    }
+  }
+  return path.join(cmakePath, 'bin');
+}
+
+function normalizeVcpkgVersion(version) {
+  const parts = version.split('.');
+  if (parts.length === 3) {
+    const year = parts[0];
+    const month = parseInt(parts[1], 10).toString();
+    const day = parseInt(parts[2], 10).toString();
+    return `${year}.${month}.${day}`;
+  }
+  return version;
+}
+
 // --- vcpkg Specific Helpers ---
 
 async function downloadVcpkgZip(version, hash, terrapinPath, disableTerrapin) {
@@ -312,7 +333,7 @@ async function run() {
     } // End CMake cache miss
 
     // Add CMake to PATH (if requested)
-    const cmakeBinPath = path.join(cmakeRootPath, 'bin');
+    const cmakeBinPath = getCMakeBinDir(cmakeRootPath, platform);
     if (!fs.existsSync(cmakeBinPath)) throw new Error(`CMake 'bin' directory not found: ${cmakeBinPath}`);
 
     if (addCMakeToPath) {
@@ -340,10 +361,11 @@ async function run() {
     // === vcpkg Setup ===
     core.startGroup('Setup vcpkg');
     const vcpkgToolName = 'vcpkg';
-    core.info(`Setting up vcpkg version: ${vcpkgVersion}`);
+    const normalizedVcpkgVersion = normalizeVcpkgVersion(vcpkgVersion);
+    core.info(`Setting up vcpkg version: ${vcpkgVersion} (normalized to ${normalizedVcpkgVersion})`);
 
     // vcpkg Cache Check
-    let finalVcpkgPath = tc.find(vcpkgToolName, vcpkgVersion); // vcpkg cache key seems simpler
+    let finalVcpkgPath = tc.find(vcpkgToolName, normalizedVcpkgVersion); // vcpkg cache key seems simpler
 
     if (finalVcpkgPath) {
       core.info(`Found cached vcpkg at: ${finalVcpkgPath}`);
@@ -355,7 +377,7 @@ async function run() {
       const vcpkgTempExtractPath = await extractVcpkgZip(vcpkgDownloadedZipPath);
       const vcpkgExtractedPath = findActualVcpkgDir(vcpkgTempExtractPath, vcpkgVersion);
       await bootstrapVcpkg(vcpkgExtractedPath);
-      finalVcpkgPath = await cacheVcpkgDir(vcpkgExtractedPath, vcpkgToolName, vcpkgVersion);
+      finalVcpkgPath = await cacheVcpkgDir(vcpkgExtractedPath, vcpkgToolName, normalizedVcpkgVersion);
       // Cleanup handled in finally block
     } // End vcpkg cache miss
 
@@ -381,4 +403,5 @@ if (require.main === module) {
 }
 
 // --- Exports ---
-module.exports = { run }; // Export only the main run function
+// Export the main run function and utility helpers
+module.exports = { run, getCMakeBinDir, normalizeVcpkgVersion };
