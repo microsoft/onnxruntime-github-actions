@@ -33,7 +33,7 @@ async function getLatestCMakeVersion(githubToken) {
 }
 
 function getCMakeBinDir(cmakePath, platform) {
-  if (platform === 'darwin') {
+  if (platform === 'macos') {
     const macOsBinPath = path.join(cmakePath, 'CMake.app', 'Contents', 'bin');
     if (fs.existsSync(macOsBinPath)) {
       return macOsBinPath;
