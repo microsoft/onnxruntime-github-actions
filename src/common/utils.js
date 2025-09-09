@@ -8,6 +8,41 @@ const path = require('node:path');
 const glob = require('@actions/glob');
 const { XMLParser, XMLValidator } = require('fast-xml-parser');
 
+// --- CI/CD Agnostic Helpers ---
+
+const isGitHub = process.env.GITHUB_ACTIONS === 'true';
+
+/**
+ * Sets an environment variable for the current and subsequent actions in the job.
+ * The variable will be available to scripts running in the job.
+ *
+ * @param {string} name The name of the environment variable.
+ * @param {string} value The value of the environment variable.
+ */
+function exportVariable(name, value) {
+  if (isGitHub) {
+    core.exportVariable(name, value);
+  } else {
+    // Azure DevOps logging command to set a variable
+    console.log(`##vso[task.setvariable variable=${name}]${value}`);
+  }
+}
+
+/**
+ * Adds a directory to the system's PATH environment variable for the current and subsequent actions in the job.
+ *
+ * @param {string} path The directory to add to the PATH.
+ */
+function addPath(path) {
+  if (isGitHub) {
+    core.addPath(path);
+  } else {
+    // Azure DevOps logging command to prepend a path
+    console.log(`##vso[task.prependpath]${path}`);
+  }
+}
+
+
 // --- Execution Helper ---
 
 /**
@@ -455,4 +490,6 @@ module.exports = {
   getArchIdentifier,
   checkPathExists,
   generateTestSummary,
+  exportVariable,
+  addPath,
 };

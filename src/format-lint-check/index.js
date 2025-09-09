@@ -6,6 +6,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 const os = require('node:os');
+const { addPath } = require('../common/utils');
 
 // --- SHA256 Verification Helper ---
 /**
@@ -142,7 +143,7 @@ async function run() {
         throw new Error(`LLVM 'bin' directory not found at: ${llvmBinPath}`);
     }
     core.info(`Adding LLVM bin directory to PATH: ${llvmBinPath}`);
-    core.addPath(llvmBinPath);
+    addPath(llvmBinPath);
     try {
       // Verify clang-format exists in PATH *and* store the command name/path
       // Use 'which' to confirm it's findable and potentially get full path if needed later

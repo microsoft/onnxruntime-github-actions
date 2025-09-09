@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 
 // Import shared utilities
-const { executeCommand, verifySHA512, getPlatformIdentifier, getArchIdentifier } = require('../common/utils');
+const { executeCommand, verifySHA512, getPlatformIdentifier, getArchIdentifier, addPath, exportVariable } = require('../common/utils');
 
 // --- CMake Specific Helper ---
 async function getLatestCMakeVersion(githubToken) {
@@ -33,7 +33,7 @@ async function getLatestCMakeVersion(githubToken) {
 }
 
 function getCMakeBinDir(cmakePath, platform) {
-  if (platform === 'darwin') {
+  if (platform === 'macos') {
     const macOsBinPath = path.join(cmakePath, 'CMake.app', 'Contents', 'bin');
     if (fs.existsSync(macOsBinPath)) {
       return macOsBinPath;
@@ -338,7 +338,7 @@ async function run() {
 
     if (addCMakeToPath) {
       core.info(`Adding ${cmakeBinPath} to PATH.`);
-      core.addPath(cmakeBinPath);
+      addPath(cmakeBinPath);
 
       // Verify Installation via PATH
       await core.group('Verifying CMake installation via PATH', async () => {
@@ -383,7 +383,7 @@ async function run() {
 
     // Set vcpkg Environment Variable & Output
     core.info(`Setting VCPKG_INSTALLATION_ROOT to ${finalVcpkgPath}`);
-    core.exportVariable('VCPKG_INSTALLATION_ROOT', finalVcpkgPath);
+    exportVariable('VCPKG_INSTALLATION_ROOT', finalVcpkgPath);
     core.setOutput('vcpkg-root', finalVcpkgPath);
     core.info('vcpkg setup complete.');
     core.endGroup(); // End vcpkg setup group
