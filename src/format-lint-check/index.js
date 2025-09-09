@@ -6,7 +6,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 const os = require('node:os');
-const { addPath } = require('../common/ci');
+const { addPath } = require('../common/utils');
 
 // --- SHA256 Verification Helper ---
 /**

@@ -7,8 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 
 // Import shared utilities
-const { executeCommand, verifySHA512, getPlatformIdentifier, getArchIdentifier } = require('../common/utils');
-const { addPath, exportVariable } = require('../common/ci');
+const { executeCommand, verifySHA512, getPlatformIdentifier, getArchIdentifier, addPath, exportVariable } = require('../common/utils');
 
 // --- CMake Specific Helper ---
 async function getLatestCMakeVersion(githubToken) {
