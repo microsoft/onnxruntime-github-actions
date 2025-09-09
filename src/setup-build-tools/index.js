@@ -403,4 +403,5 @@ if (require.main === module) {
 }
 
 // --- Exports ---
-module.exports = { run, getCMakeBinDir, normalizeVcpkgVersion }; // Export only the main run function
+// Export the main run function and utility helpers
+module.exports = { run, getCMakeBinDir, normalizeVcpkgVersion };
