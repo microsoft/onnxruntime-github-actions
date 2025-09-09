@@ -8,6 +8,7 @@ const os = require('node:os');
 
 // Import shared utilities
 const { executeCommand, verifySHA512, getPlatformIdentifier, getArchIdentifier } = require('../common/utils');
+const { addPath, exportVariable } = require('../common/ci');
 
 // --- CMake Specific Helper ---
 async function getLatestCMakeVersion(githubToken) {
@@ -338,7 +339,7 @@ async function run() {
 
     if (addCMakeToPath) {
       core.info(`Adding ${cmakeBinPath} to PATH.`);
-      core.addPath(cmakeBinPath);
+      addPath(cmakeBinPath);
 
       // Verify Installation via PATH
       await core.group('Verifying CMake installation via PATH', async () => {
@@ -383,7 +384,7 @@ async function run() {
 
     // Set vcpkg Environment Variable & Output
     core.info(`Setting VCPKG_INSTALLATION_ROOT to ${finalVcpkgPath}`);
-    core.exportVariable('VCPKG_INSTALLATION_ROOT', finalVcpkgPath);
+    exportVariable('VCPKG_INSTALLATION_ROOT', finalVcpkgPath);
     core.setOutput('vcpkg-root', finalVcpkgPath);
     core.info('vcpkg setup complete.');
     core.endGroup(); // End vcpkg setup group
