@@ -1,0 +1,54 @@
+name: 'Setup Build Tools (CMake & vcpkg)'
+description: 'Downloads, verifies, extracts, caches CMake and vcpkg. Optionally adds CMake to PATH and sets VCPKG_INSTALLATION_ROOT.'
+
+inputs:
+  # --- CMake Inputs ---
+  cmake-version:
+    description: 'The CMake version to download (e.g., 3.28.3) or "latest".'
+    required: true
+  cmake-hash:
+    description: >
+      Optional. The expected SHA512 hash of the CMake archive for the target platform.
+      Required for verification and Terrapin usage for CMake.
+    required: false
+  add-cmake-to-path:
+    description: 'If true, add the CMake bin directory to the PATH environment variable.'
+    required: false
+    default: 'true'
+
+  # --- vcpkg Inputs ---
+  vcpkg-version:
+    description: 'The vcpkg tag version to download (e.g., 2023.10.19)'
+    required: true
+  vcpkg-hash:
+    description: 'The expected SHA512 hash for vcpkg. Required for verification and Terrapin usage for vcpkg.'
+    required: true # vcpkg hash was required in original
+
+  # --- Shared Inputs ---
+  terrapin-tool-path:
+    description: 'Path to the TerrapinRetrievalTool.exe executable (used for both CMake and vcpkg if applicable).'
+    required: false
+    default: 'C:/local/Terrapin/TerrapinRetrievalTool.exe' # Default from vcpkg action
+  disable-terrapin:
+    description: 'Set to true to bypass Terrapin for both downloads and use direct download instead.'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'GitHub token used for fetching the "latest" CMake version via API.'
+    required: false
+    default: ${{ github.token }} # Default to the workflow token
+
+outputs:
+  # --- CMake Outputs ---
+  cmake-root:
+    description: 'The root directory path of the cached CMake installation.'
+  cmake-path:
+    description: 'The path to the directory containing the CMake executables (added to PATH if add-cmake-to-path is true).'
+
+  # --- vcpkg Outputs ---
+  vcpkg-root:
+    description: 'The installation path of the cached vcpkg instance (also set as VCPKG_INSTALLATION_ROOT env var).'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
