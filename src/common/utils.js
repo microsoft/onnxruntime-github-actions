@@ -200,6 +200,12 @@ function getArchIdentifier() {
   const platform = process.platform;
 
   if (platform === 'darwin') return 'universal'; // Assume universal for macOS for simplicity
+
+  // Directly return 'arm64' for Windows on ARM
+  if (platform === 'win32' && arch === 'arm64') {
+    return 'arm64';
+  }
+
   if (arch === 'x64') return 'x86_64';
   if (arch === 'arm64') return 'aarch64';
 
