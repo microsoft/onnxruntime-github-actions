@@ -172,6 +172,7 @@ async function run() {
         // --- Construct the sequence of commands to run inside Docker ---
         let commandSequence = [
             'ccache --version',
+            'ccache --max-size=20GiB', // debug builds have large `.o` due to symbols
             'ccache --zero-stats', // reset ccache stats at the start of the build
         ];
 
