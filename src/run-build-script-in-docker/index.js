@@ -170,7 +170,10 @@ async function run() {
         core.debug(`Build.py command part: ${buildPyCommandPart}`);
 
         // --- Construct the sequence of commands to run inside Docker ---
-        let commandSequence = [];
+        let commandSequence = [
+            'ccache --version',
+            'ccache --zero-stats', // reset ccache stats at the start of the build
+        ];
 
         // Add python requirements install if needed
         if (isPythonBuild) {
@@ -182,6 +185,7 @@ async function run() {
 
         // Add the main build.py command
         commandSequence.push(buildPyCommandPart);
+        commandSequence.push('ccache --show-stats'); // installed version might not support `-vv` for extra verbosity
 
         // Join commands with &&
         let combinedCommands = commandSequence.join(' && ');
