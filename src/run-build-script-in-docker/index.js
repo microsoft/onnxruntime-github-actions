@@ -144,7 +144,7 @@ async function run() {
         const enableOnnxTestsFlag = dataOnnxExists && dataModelsExists;
         core.info(`--enable_onnx_tests will be ${enableOnnxTestsFlag ? 'added' : 'skipped'}.`);
 
-        fs.mkdir(hostCCacheDir, { recursive: true }); // ensure ccache exists for mounting
+        await fs.mkdir(hostCCacheDir, { recursive: true }); // ensure ccache exists for mounting
 
         // --- Check for GPU ---
         const gpuAvailable = await checkGpu();
