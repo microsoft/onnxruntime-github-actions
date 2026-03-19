@@ -30,8 +30,8 @@ async function runCommand(command, args = [], options = {}) {
         const { exitCode, stdout, stderr } = await exec.getExecOutput(command, args, effectiveOptions);
 
         if (exitCode !== 0 && !effectiveOptions.ignoreReturnCode) {
-             core.error(`Stderr: ${stderr}`);
-             throw new Error(`Command exited with code ${exitCode}: ${command} ${args.join(' ')}`);
+            core.error(`Stderr: ${stderr}`);
+            throw new Error(`Command exited with code ${exitCode}: ${command} ${args.join(' ')}`);
         }
         core.info(`Finished: ${command} ${args.join(' ')}`);
         return { exitCode, stdout, stderr };
@@ -165,7 +165,7 @@ async function main() {
         // --- Install Python Requirements ---
         core.startGroup('Install Python Requirements');
         const requirementsPath = path.join(workspaceDir, 'tools/ci_build/github/linux/python/requirements.txt');
-        await runCommand('python3', ['-m', 'pip', 'install', '--user','-r', requirementsPath], { cwd: workspaceDir });
+        await runCommand('python3', ['-m', 'pip', 'install', '--user', '-r', requirementsPath], { cwd: workspaceDir });
         core.endGroup();
 
         // --- Build Minimal ORT ---
@@ -179,6 +179,7 @@ async function main() {
             '--config', 'Debug',
             '--skip_submodule_sync',
             '--build_shared_lib',
+            '--use_cache',
             '--use_vcpkg',
             '--use_vcpkg_ms_internal_asset_cache',
             '--parallel',
@@ -192,7 +193,7 @@ async function main() {
         // If the *config file itself* was generated with type reduction, the build will reflect that.
         // The enable-type-reduction input here is mostly informative now.
         if (enableTypeReduction && globallyAllowedTypes) {
-             core.warning('Input `enable-type-reduction` is set to true, but type reduction relies on how the config file was generated. When using `globally_allowed_types`, type reduction is NOT automatically applied by this action.');
+            core.warning('Input `enable-type-reduction` is set to true, but type reduction relies on how the config file was generated. When using `globally_allowed_types`, type reduction is NOT automatically applied by this action.');
         } else if (enableTypeReduction) {
             core.info('Input `enable-type-reduction` is true. Assuming the provided `reduced-ops-config-file` was generated with type reduction enabled.');
         }
@@ -244,8 +245,8 @@ async function main() {
             await runCommand('python3', sizeCheckArgs);
         } catch (error) {
             core.warning(`Could not access library file ${libraryPath} or run size check script: ${error.message}`);
-             // Decide if this should be a failure or warning - currently warning
-             // throw new Error(`Failed during binary size check: ${error.message}`);
+            // Decide if this should be a failure or warning - currently warning
+            // throw new Error(`Failed during binary size check: ${error.message}`);
         }
         core.endGroup();
 
@@ -261,8 +262,8 @@ async function main() {
             core.info(`Artifact uploaded successfully: ${uploadResponse.artifactName}`);
         } catch (err) {
             core.warning(`Could not find or upload binary size report ${binarySizeReportPath}: ${err.message}`);
-             // Fail the job if upload is critical, otherwise just warn - currently warning
-             // throw new Error(`Failed to upload artifact: ${err.message}`);
+            // Fail the job if upload is critical, otherwise just warn - currently warning
+            // throw new Error(`Failed to upload artifact: ${err.message}`);
         }
         core.endGroup();
 
