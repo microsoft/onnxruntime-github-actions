@@ -1,0 +1,40 @@
+name: 'Run ORT Build Script in Docker'
+description: 'Runs tools/ci_build/build.py inside Docker with GPU auto-detection and common mounts.'
+inputs:
+  docker_image:
+    description: 'Docker image repository and tag'
+    required: true
+  build_config:
+    description: 'Build configuration (e.g., Release, Debug)'
+    required: true
+  mode:
+    description: 'Execution mode: "update" (CMake), "build" (Compile), or "test" (Run Tests)'
+    required: true
+  container_user:
+    description: 'Username inside the container for home directory mounts (.cache, .onnx). Assumes /home/<username>.'
+    required: false
+    default: 'onnxruntimedev'
+  execution_providers:
+    description: 'Space-separated list of execution providers to enable (e.g., "cuda dnnl"). Adds --use_<ep> flags.'
+    required: false
+    default: ''
+  extra_build_flags:
+    description: 'Extra flags appended to the build.py command (common across modes)'
+    required: false
+    default: ''
+  python_path_prefix:
+    description: 'Optional prefix for the python3 command (e.g., PATH=...)'
+    required: false
+    default: ''
+  allow_released_opset_only:
+    description: 'Value for ALLOW_RELEASED_ONNX_OPSET_ONLY env var'
+    required: false
+    default: '0'
+  nightly_build:
+    description: 'Value for NIGHTLY_BUILD env var'
+    required: false
+    default: '1'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
