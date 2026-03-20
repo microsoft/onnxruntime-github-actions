@@ -12,7 +12,7 @@ const buildDir = path.join(__dirname, 'build'); // Build output directory
 const sharedEsbuildOptions = {
   bundle: true, // Bundle dependencies
   platform: 'node', // Target Node.js environment
-  target: 'node20', // Target Node.js version (must match action.yml)
+  target: 'node24', // Target Node.js version (must match action.yml)
   minify: true, // Minify output code
   sourcemap: 'linked', // Generate linked source maps for debugging
   // Consider adding external: ['@actions/*'] if you want to rely on runner's modules,
