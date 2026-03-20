@@ -103,10 +103,16 @@ async function verifySHA512(filePath, expectedHash) {
     stream.on('data', (chunk) => hash.update(chunk));
     stream.on('end', () => {
       const actualHash = hash.digest('hex');
-      core.debug(`Actual SHA512: ${actualHash}`);
-      core.debug(`Expected SHA512: ${expectedHash}`);
       const match = actualHash.toLowerCase() === expectedHash.toLowerCase();
-      core.info(`SHA512 Verification Result for ${path.basename(filePath)}: ${match ? 'Match' : 'Mismatch'}`);
+      if (match) {
+        core.debug(`SHA512 hash matches for file: ${filePath}`);
+        core.debug(`SHA512: '${actualHash.toLowerCase()}'`);
+      } else {
+        core.warning(`Actual   SHA512: '${actualHash.toLowerCase()}'`);
+        core.warning(`Expected SHA512: '${expectedHash.toLowerCase()}'`);
+        core.warning(`SHA512 hash mismatch for file: ${filePath}`);
+      }
+
       resolve(match);
     });
   });
