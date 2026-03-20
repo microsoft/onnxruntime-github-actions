@@ -14,27 +14,6 @@ const { executeCommand, verifySHA512, getPlatformIdentifier, getArchIdentifier, 
 const TERRAPIN_BASE_URL = 'https://vcpkg.storage.devpackages.microsoft.io/artifacts/';
 
 // --- CMake Specific Helper ---
-async function getLatestCMakeVersion(githubToken) {
-  core.info('Querying GitHub API for the latest CMake release...');
-  if (!githubToken) throw new Error('GitHub token not provided to getLatestCMakeVersion.');
-  const octokit = github.getOctokit(githubToken);
-  try {
-    const latestRelease = await octokit.rest.repos.getLatestRelease({ owner: 'Kitware', repo: 'CMake' });
-    const tagName = latestRelease.data.tag_name;
-    if (!tagName || !tagName.startsWith('v')) {
-      throw new Error(`Unexpected tag format for latest CMake release: ${tagName}`);
-    }
-    const version = tagName.substring(1);
-    core.info(`Latest CMake version found: ${version}`);
-    return version;
-  } catch (error) {
-    core.error(`Failed to fetch latest CMake release: ${error.message}`);
-    if (error.status === 403 || error.status === 401) {
-      core.warning('GitHub API rate limit/auth error checking latest CMake version.');
-    }
-    throw error; // Re-throw error to fail the action if 'latest' was requested
-  }
-}
 
 function getCMakeBinDir(cmakePath, platform) {
   if (platform === 'macos') {
@@ -129,10 +108,6 @@ async function downloadArchive(terrapinTool, downloadUrl, hash) {
   return downloadedFile;
 }
 
-async function downloadVcpkgZip(terrapinTool, version, hash) {
-  return await downloadArchive(terrapinTool, `https://github.com/microsoft/vcpkg/archive/refs/tags/${version}.zip`, hash)
-}
-
 async function extractVcpkgZip(downloadedZipPath) {
   core.info(`Extracting vcpkg archive: ${path.basename(downloadedZipPath)}...`);
   const tempExtractPath = await tc.extractZip(downloadedZipPath);
@@ -200,170 +175,122 @@ async function bootstrapVcpkg(extractedPath) {
   core.info('vcpkg bootstrapped successfully.');
 }
 
-async function cacheVcpkgDir(extractedPath, toolName, version) {
-  core.info(`Caching bootstrapped vcpkg directory: ${extractedPath}`);
-  const finalPath = await tc.cacheDir(extractedPath, toolName, version);
-  core.info(`Successfully cached vcpkg to: ${finalPath}`);
-  return finalPath;
+async function cacheTool(terrapinTool, toolName, version, url, hash, extract) {
+  const archKey = `${getPlatformIdentifier()}-${getArchIdentifier()}`;
+  const cachedDir = tc.find(toolName, version, archKey);
+  if (cachedDir) {
+    core.info(`Found cached ${toolName} at: ${cachedDir}`);
+    return cachedDir;
+  }
+
+  const downloadFile = await downloadArchive(terrapinTool, url, hash)
+  let extractDir;
+  try {
+    extractDir = await extract(downloadFile);
+  } finally {
+    try {
+      fs.unlinkSync(downloadFile);
+      core.debug(`Cleaned up downloaded archive: ${downloadFile}`);
+    } catch (e) {
+      core.warning(`Failed to delete downloaded archive '${downloadFile}': ${e.message}`);
+    }
+  }
+
+  const toolDir = await tc.cacheDir(extractDir, toolName, version, archKey);
+  core.debug(`Cached ${toolName} at: ${toolDir}`);
+  return toolDir;
 }
 
-// --- Shared Helper ---
-function cleanupDownload(downloadedPath) {
-  try {
-    if (downloadedPath && fs.existsSync(downloadedPath)) {
-      fs.unlinkSync(downloadedPath);
-      core.info(`Cleaned up downloaded ${toolName} archive: ${downloadedPath}`);
+async function run__cmake(terrapinTool, version, hash, addToPath) {
+  const platform = getPlatformIdentifier();
+  const arch = getArchIdentifier();
+  const cmakeFileExtension = platform === 'windows' ? 'zip' : 'tar.gz';
+  const cmakeFileName = `cmake-${version}-${platform}-${arch}`;
+
+  const cmakeDir = await cacheTool(
+    terrapinTool,
+    "cmake", version,
+    `https://github.com/Kitware/CMake/releases/download/v${version}/${cmakeFileName}.${cmakeFileExtension}`, hash,
+    async (download) => {
+      core.debug(`Extracting ${download}...`);
+      const extractDir = cmakeFileExtension === 'zip'
+        ? await tc.extractZip(download)
+        : await tc.extractTar(download);
+      core.debug(`Extracted CMake archive to temporary location: ${extractDir}`);
+
+      // Locate CMake Directory
+      const maybeRoot = path.join(extractDir, cmakeFileName);
+      if (fs.existsSync(maybeRoot) && fs.statSync(maybeRoot).isDirectory())
+        return maybeRoot;
+
+      const dirs = fs.readdirSync(extractDir).filter((f) => fs.statSync(path.join(extractDir, f)).isDirectory());
+      if (dirs.length !== 1) throw new Error(
+        `Could not locate extracted CMake directory in ${extractDir}. Found: ${dirs.join(', ')}`
+      );
+
+      core.warning(`Assuming single directory '${dirs[0]}' is CMake root.`);
+      return path.join(extractDir, dirs[0]);
+    });
+  core.info(`Located extracted CMake root at: ${cmakeDir}`);
+
+  // Add CMake to PATH (if requested)
+  const binPath = getCMakeBinDir(cmakeDir, platform);
+  if (!fs.existsSync(binPath)) throw new Error(`CMake 'bin' directory not found: ${binPath}`);
+
+  if (addToPath) {
+    core.info(`Adding ${binPath} to PATH.`);
+    addPath(binPath);
+
+    try {
+      // Verify Installation via PATH
+      await exec.exec('cmake', ['--version']);
+    } catch (error) {
+      throw new Error(`Verification 'cmake --version' failed: ${error.message}. Check PATH or CMake installation.`, { cause: error });
     }
-  } catch (e) {
-    core.warning(`Failed to delete downloaded ${toolName} archive '${downloadedPath}': ${e.message}`);
+  } else {
+    core.info(`Skipping adding ${binPath} to PATH.`);
   }
+
+  // Set CMake Outputs
+  core.setOutput('cmake-root', cmakeDir);
+  core.setOutput('cmake-path', binPath);
+}
+
+async function run__vcpkg(terrapinTool, version, hash) {
+  const vcpkgDir = await cacheTool(
+    terrapinTool,
+    "vcpkg", normalizeVcpkgVersion(version),
+    `https://github.com/microsoft/vcpkg/archive/refs/tags/${version}.zip`, hash,
+    async (download) => {
+      const extracted = await extractVcpkgZip(download);
+      const extractedActual = findActualVcpkgDir(extracted, version);
+      await bootstrapVcpkg(extractedActual);
+      return extractedActual;
+    });
+  exportVariable('VCPKG_INSTALLATION_ROOT', vcpkgDir);
+  core.setOutput('vcpkg-root', vcpkgDir);
 }
 
 // --- Main Orchestration Function ---
 async function run() {
-  let cmakeDownloadedArchivePath; // Track potential CMake download path for cleanup
-  let vcpkgDownloadedZipPath; // Track potential vcpkg download path for cleanup
-
   try {
     // --- Get Combined Inputs ---
-    const cmakeVersionInput = core.getInput('cmake-version', { required: true });
+    const cmakeVersion = core.getInput('cmake-version', { required: true });
     const cmakeHash = core.getInput('cmake-hash', { required: true });
+    const addCMakeToPath = core.getBooleanInput('add-cmake-to-path');
+
     const vcpkgVersion = core.getInput('vcpkg-version', { required: true });
     const vcpkgHash = core.getInput('vcpkg-hash', { required: true });
+
     const terrapinPath = core.getInput('terrapin-tool-path');
     const allowTerrapin = !core.getBooleanInput('disable-terrapin'); // keep logic positive to minimise double negatives
-    const addCMakeToPath = core.getBooleanInput('add-cmake-to-path');
-    const githubToken = core.getInput('github-token'); // Use default from action.yml
-
-    const platform = getPlatformIdentifier();
-    const arch = getArchIdentifier();
-    const runnerTempDir = process.env.RUNNER_TEMP || os.tmpdir();
-    if (!runnerTempDir) throw new Error('Runner temporary directory not found.');
 
     const terrapinTool = terrapinAvailable(terrapinPath, allowTerrapin) ? terrapinPath : null;
-
-    // === CMake Setup ===
-    core.startGroup('Setup CMake');
-    const cmakeToolName = 'cmake';
-
-    // Resolve CMake Version
-    let resolvedCmakeVersion = cmakeVersionInput;
-    if (cmakeVersionInput.toLowerCase() === 'latest') {
-      core.info('Resolving "latest" CMake version via GitHub API...');
-      resolvedCmakeVersion = await getLatestCMakeVersion(githubToken);
-    }
-    core.info(`Setting up CMake version: ${resolvedCmakeVersion} for ${platform}-${arch}`);
-
-    // CMake Cache Check
-    const cmakeCacheKeyArch = `${platform}-${arch}`;
-    let cmakeRootPath = tc.find(cmakeToolName, resolvedCmakeVersion, cmakeCacheKeyArch);
-
-    if (cmakeRootPath) {
-      core.info(`Found cached CMake at: ${cmakeRootPath}`);
-    } else {
-      // CMake Cache Miss Logic
-      core.info(`CMake version ${resolvedCmakeVersion} (${cmakeCacheKeyArch}) not found in cache. Downloading...`);
-
-      const cmakeFileExtension = platform === 'windows' ? 'zip' : 'tar.gz';
-      const cmakeFileName = platform === 'macos' && arch === 'universal'
-        ? `cmake-${resolvedCmakeVersion}-macos-universal`
-        : `cmake-${resolvedCmakeVersion}-${platform}-${arch}`;
-      const cmakeDownloadUrl = `https://github.com/Kitware/CMake/releases/download/v${resolvedCmakeVersion}/${cmakeFileName}.${cmakeFileExtension}`;
-      const cmakeDownloadedArchivePath = await downloadArchive(terrapinTool, cmakeDownloadUrl, cmakeHash);
-
-      core.debug(`Extracting ${cmakeDownloadedArchivePath}...`);
-      const cmakeTempExtractPath = cmakeFileExtension === 'zip'
-        ? await tc.extractZip(cmakeDownloadedArchivePath)
-        : await tc.extractTar(cmakeDownloadedArchivePath);
-      core.debug(`Extracted CMake archive to temporary location: ${cmakeTempExtractPath}`);
-
-      // Locate CMake Directory
-      const cmakePotentialRoot = path.join(cmakeTempExtractPath, cmakeFileName);
-      if (fs.existsSync(cmakePotentialRoot) && fs.statSync(cmakePotentialRoot).isDirectory()) {
-        cmakeRootPath = cmakePotentialRoot;
-      } else {
-        const files = fs.readdirSync(cmakeTempExtractPath);
-        const dirs = files.filter((f) => fs.statSync(path.join(cmakeTempExtractPath, f)).isDirectory());
-        if (dirs.length === 1) {
-          cmakeRootPath = path.join(cmakeTempExtractPath, dirs[0]);
-          core.warning(`Assuming single directory '${dirs[0]}' is CMake root.`);
-        } else {
-          throw new Error(
-            `Could not locate extracted CMake directory in ${cmakeTempExtractPath}. Found: ${dirs.join(', ')}`
-          );
-        }
-      }
-      core.info(`Located extracted CMake root at: ${cmakeRootPath}`);
-
-      // Cache CMake Directory
-      core.info(`Caching CMake directory: ${cmakeRootPath}`);
-      cmakeRootPath = await tc.cacheDir(cmakeRootPath, cmakeToolName, resolvedCmakeVersion, cmakeCacheKeyArch);
-      core.info(`Successfully cached CMake to: ${cmakeRootPath}`);
-
-      // Cleanup handled in finally block
-    } // End CMake cache miss
-
-    // Add CMake to PATH (if requested)
-    const cmakeBinPath = getCMakeBinDir(cmakeRootPath, platform);
-    if (!fs.existsSync(cmakeBinPath)) throw new Error(`CMake 'bin' directory not found: ${cmakeBinPath}`);
-
-    if (addCMakeToPath) {
-      core.info(`Adding ${cmakeBinPath} to PATH.`);
-      addPath(cmakeBinPath);
-
-      // Verify Installation via PATH
-      await core.group('Verifying CMake installation via PATH', async () => {
-        try {
-          await exec.exec('cmake', ['--version']);
-        } catch (error) {
-          core.warning(`Verification 'cmake --version' failed: ${error.message}. Check PATH or CMake installation.`);
-        }
-      });
-    } else {
-      core.info(`Skipping adding ${cmakeBinPath} to PATH.`);
-    }
-
-    // Set CMake Outputs
-    core.setOutput('cmake-root', cmakeRootPath);
-    core.setOutput('cmake-path', cmakeBinPath);
-    core.info(`CMake ${resolvedCmakeVersion} setup complete.`);
-    core.endGroup(); // End CMake setup group
-
-    // === vcpkg Setup ===
-    core.startGroup('Setup vcpkg');
-    const vcpkgToolName = 'vcpkg';
-    const normalizedVcpkgVersion = normalizeVcpkgVersion(vcpkgVersion);
-    core.info(`Setting up vcpkg version: ${vcpkgVersion} (normalized to ${normalizedVcpkgVersion})`);
-
-    // vcpkg Cache Check
-    let finalVcpkgPath = tc.find(vcpkgToolName, normalizedVcpkgVersion); // vcpkg cache key seems simpler
-
-    if (finalVcpkgPath) {
-      core.info(`Found cached vcpkg at: ${finalVcpkgPath}`);
-    } else {
-      // vcpkg Cache Miss Logic
-      core.info(`vcpkg version ${vcpkgVersion} not found in cache. Downloading...`);
-      vcpkgDownloadedZipPath = await downloadVcpkgZip(terrapinTool, vcpkgVersion, vcpkgHash); // Track for cleanup
-      const vcpkgTempExtractPath = await extractVcpkgZip(vcpkgDownloadedZipPath);
-      const vcpkgExtractedPath = findActualVcpkgDir(vcpkgTempExtractPath, vcpkgVersion);
-      await bootstrapVcpkg(vcpkgExtractedPath);
-      finalVcpkgPath = await cacheVcpkgDir(vcpkgExtractedPath, vcpkgToolName, normalizedVcpkgVersion);
-      // Cleanup handled in finally block
-    } // End vcpkg cache miss
-
-    // Set vcpkg Environment Variable & Output
-    core.info(`Setting VCPKG_INSTALLATION_ROOT to ${finalVcpkgPath}`);
-    exportVariable('VCPKG_INSTALLATION_ROOT', finalVcpkgPath);
-    core.setOutput('vcpkg-root', finalVcpkgPath);
-    core.info('vcpkg setup complete.');
-    core.endGroup(); // End vcpkg setup group
+    await core.group(`Setup cmake`, async () => { await run__cmake(terrapinTool, cmakeVersion, cmakeHash, addCMakeToPath) });
+    await core.group(`Setup vcpkg`, async () => { await run__vcpkg(terrapinTool, vcpkgVersion, vcpkgHash) });
   } catch (error) {
     // Fail the action with the error message
     core.setFailed(error.message);
-  } finally {
-    // Cleanup downloads only if they were actually performed (i.e., path variable is set)
-    cleanupDownload(cmakeDownloadedArchivePath, 'CMake');
-    cleanupDownload(vcpkgDownloadedZipPath, 'vcpkg');
   }
 }
 

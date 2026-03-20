@@ -4,7 +4,7 @@ description: 'Downloads, verifies, extracts, caches CMake and vcpkg. Optionally 
 inputs:
   # --- CMake Inputs ---
   cmake-version:
-    description: 'The CMake version to download (e.g., 3.28.3) or "latest".'
+    description: 'The CMake version to download (e.g., 3.28.3).'
     required: true
   cmake-hash:
     description: SHA512 of archive.
@@ -31,10 +31,6 @@ inputs:
     description: 'Set to true to bypass Terrapin for both downloads and use direct download instead.'
     required: false
     default: 'false'
-  github-token:
-    description: 'GitHub token used for fetching the "latest" CMake version via API.'
-    required: false
-    default: ${{ github.token }} # Default to the workflow token
 
 outputs:
   # --- CMake Outputs ---
