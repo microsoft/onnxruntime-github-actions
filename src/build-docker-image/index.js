@@ -206,7 +206,7 @@ async function calculateChecksum(hashAlgorithm, dockerfilePath, buildArgsInput, 
 async function attemptPullCache(fullImageNameWithTag, shouldPull) {
   if (!shouldPull) {
     core.info('Skipping cache pull attempt (pull: false).');
-    return false;
+    return true;  // Return true to satisfy the condition where we have a cache hit but don't wish to pull
   }
   core.info(`Attempting to pull cached image: ${fullImageNameWithTag}`);
   try {
