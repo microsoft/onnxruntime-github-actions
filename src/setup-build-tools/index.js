@@ -3,11 +3,15 @@ const tc = require('@actions/tool-cache');
 const exec = require('@actions/exec');
 const github = require('@actions/github');
 const path = require('node:path');
+const assert = require('node:assert');
+const crypto = require("node:crypto");
 const fs = require('node:fs');
 const os = require('node:os');
 
 // Import shared utilities
 const { executeCommand, verifySHA512, getPlatformIdentifier, getArchIdentifier, addPath, exportVariable } = require('../common/utils');
+
+const TERRAPIN_BASE_URL = 'https://vcpkg.storage.devpackages.microsoft.io/artifacts/';
 
 // --- CMake Specific Helper ---
 async function getLatestCMakeVersion(githubToken) {
@@ -55,24 +59,45 @@ function normalizeVcpkgVersion(version) {
 
 // --- vcpkg Specific Helpers ---
 
-async function downloadVcpkgZip(version, hash, terrapinPath, disableTerrapin) {
-  let downloadedZipPath;
-  const downloadUrl = `https://github.com/microsoft/vcpkg/archive/refs/tags/${version}.zip`;
+function terrapinAvailable(terrapinPath, allowTerrapin) {
+  if (!allowTerrapin) {
+    core.info('Terrapin usage disabled.');
+    return false;
+  }
+
+  if (!terrapinPath) {
+    core.info('Terrapin tool path not provided or unavailable.');
+    return false;
+  }
+
+  if (!fs.existsSync(terrapinPath)) {
+    core.warning(`Terrapin tool path provided but not found at '${terrapinPath}'.`);
+    return false;
+  }
+
+  core.info(`Using Terrapin tool @ ${terrapinPath}`);
+  return true;
+}
+
+// PRECONDITION: `terrapinTool` != null <> `terrapinTool` exists on disk and we should use it
+async function downloadArchive(terrapinTool, downloadUrl, hash) {
+  // Not robust/correct, but whatever. Keep the extension for the file b/c some tools try to infer behaviour from it.
+  // e.g. `tar`
+  const runnerTempDir = process.env.RUNNER_TEMP || os.tmpdir();
+  if (!runnerTempDir) throw new Error('Could not determine temporary directory for download.');
+
+  // Not robust/correct, but whatever. Keep the filename for the file b/c some tools try to infer behaviour from it.
+  // e.g. `tar` can infer the compression type.
+  const baseName = path.basename(downloadUrl);
+  const downloadedFile = path.join(runnerTempDir, `${crypto.randomUUID()}_${baseName}`); // random name to avoid conflicts/security issues
 
   // Use Terrapin if: path provided, path exists, Terrapin NOT disabled
   // Note: vcpkg requires hash, so hash presence check isn't needed here like for cmake
-  const canUseTerrapin = terrapinPath && !disableTerrapin && fs.existsSync(terrapinPath);
-
-  if (canUseTerrapin) {
-    core.info(`Using Terrapin Tool for vcpkg at: ${terrapinPath}`);
-    const runnerTempDir = process.env.RUNNER_TEMP || os.tmpdir();
-    if (!runnerTempDir) throw new Error('Could not determine temporary directory for vcpkg download.');
-    downloadedZipPath = path.join(runnerTempDir, `vcpkg-${version}.zip`); // More specific name
-    core.info(`Terrapin will download vcpkg to: ${downloadedZipPath}`);
-    const terrapinBaseUrl = 'https://vcpkg.storage.devpackages.microsoft.io/artifacts/';
-    const terrapinArgs = [
+  if (terrapinTool) {
+    // Quote command path in case it contains spaces. Underlying API is poorly designed and doesn't handle this.
+    await core.group(`Downloading ${downloadUrl} via Terrapin Tool`, async () => await executeCommand(`"${terrapinTool}"`, [
       '-b',
-      terrapinBaseUrl,
+      TERRAPIN_BASE_URL,
       '-a',
       'true',
       '-u',
@@ -82,33 +107,30 @@ async function downloadVcpkgZip(version, hash, terrapinPath, disableTerrapin) {
       '-s',
       hash,
       '-d',
-      downloadedZipPath,
-    ];
-    await core.group('Downloading vcpkg via Terrapin Tool', async () => {
-      // Quote path in case it contains spaces
-      await executeCommand(`"${terrapinPath}"`, terrapinArgs);
-    });
-    core.info(`Download vcpkg via Terrapin completed.`);
+      downloadedFile,
+    ]));
   } else {
-    // Log reason for not using Terrapin
-    if (terrapinPath && !fs.existsSync(terrapinPath)) {
-      core.warning(
-        `Terrapin tool path provided but not found at '${terrapinPath}'. Attempting direct download for vcpkg.`
-      );
-    } else if (disableTerrapin) {
-      core.info('Terrapin usage disabled. Attempting direct download for vcpkg.');
-    } else {
-      core.info('Terrapin tool path not provided or unavailable. Attempting direct download for vcpkg.');
-    }
-    // Direct download
-    downloadedZipPath = await tc.downloadTool(downloadUrl);
-    core.info(`Direct download for vcpkg completed. Archive at: ${downloadedZipPath}`);
+    const result = await core.group(`Downloading ${downloadUrl} directly`, async () => await tc.downloadTool(downloadUrl, downloadedFile));
+    assert.strictEqual(result, downloadedFile, `Unexpected download location returned by tool-cache: ${result} (expected: ${downloadedFile})`);
   }
-  // Verify download happened
-  if (!fs.existsSync(downloadedZipPath)) {
-    throw new Error(`vcpkg download failed: Expected file not found at ${downloadedZipPath}.`);
+
+  if (!fs.existsSync(downloadedFile)) { // Verify download happened
+    throw new Error(`vcpkg download failed: Expected file not found at ${downloadedFile}.`);
   }
-  return downloadedZipPath;
+
+  try {
+    // Ostensibly terrapin should already have validated this on that branch, but I cannot confirm given the lack of documentation/access to the tool.
+    if (!await verifySHA512(downloadedFile, hash)) // does *NOT* throws on mismatch
+      throw new Error(`SHA512 hash mismatch for downloaded file at ${downloadedFile}.`);
+  } catch (error) {
+    fs.unlinkSync(downloadedFile); // do not leave unverified files around
+    throw error;
+  }
+  return downloadedFile;
+}
+
+async function downloadVcpkgZip(terrapinTool, version, hash) {
+  return await downloadArchive(terrapinTool, `https://github.com/microsoft/vcpkg/archive/refs/tags/${version}.zip`, hash)
 }
 
 async function extractVcpkgZip(downloadedZipPath) {
@@ -186,7 +208,7 @@ async function cacheVcpkgDir(extractedPath, toolName, version) {
 }
 
 // --- Shared Helper ---
-function cleanupDownload(downloadedPath, toolName = 'Archive') {
+function cleanupDownload(downloadedPath) {
   try {
     if (downloadedPath && fs.existsSync(downloadedPath)) {
       fs.unlinkSync(downloadedPath);
@@ -205,11 +227,11 @@ async function run() {
   try {
     // --- Get Combined Inputs ---
     const cmakeVersionInput = core.getInput('cmake-version', { required: true });
-    const cmakeHash = core.getInput('cmake-hash'); // Optional
+    const cmakeHash = core.getInput('cmake-hash', { required: true });
     const vcpkgVersion = core.getInput('vcpkg-version', { required: true });
-    const vcpkgHash = core.getInput('vcpkg-hash', { required: true }); // Required
+    const vcpkgHash = core.getInput('vcpkg-hash', { required: true });
     const terrapinPath = core.getInput('terrapin-tool-path');
-    const disableTerrapin = core.getBooleanInput('disable-terrapin');
+    const allowTerrapin = !core.getBooleanInput('disable-terrapin'); // keep logic positive to minimise double negatives
     const addCMakeToPath = core.getBooleanInput('add-cmake-to-path');
     const githubToken = core.getInput('github-token'); // Use default from action.yml
 
@@ -218,9 +240,10 @@ async function run() {
     const runnerTempDir = process.env.RUNNER_TEMP || os.tmpdir();
     if (!runnerTempDir) throw new Error('Runner temporary directory not found.');
 
+    const terrapinTool = terrapinAvailable(terrapinPath, allowTerrapin) ? terrapinPath : null;
+
     // === CMake Setup ===
     core.startGroup('Setup CMake');
-    const cmakeHasHash = cmakeHash && cmakeHash.trim() !== '';
     const cmakeToolName = 'cmake';
 
     // Resolve CMake Version
@@ -242,69 +265,17 @@ async function run() {
       core.info(`CMake version ${resolvedCmakeVersion} (${cmakeCacheKeyArch}) not found in cache. Downloading...`);
 
       const cmakeFileExtension = platform === 'windows' ? 'zip' : 'tar.gz';
-      let cmakeFileName = `cmake-${resolvedCmakeVersion}-${platform}-${arch}`;
-      if (platform === 'macos' && arch === 'universal') cmakeFileName = `cmake-${resolvedCmakeVersion}-macos-universal`;
-      const cmakeArchiveFileName = `${cmakeFileName}.${cmakeFileExtension}`;
-      const cmakeDownloadUrl = `https://github.com/Kitware/CMake/releases/download/v${resolvedCmakeVersion}/${cmakeArchiveFileName}`;
-      core.info(`CMake Download URL: ${cmakeDownloadUrl}`);
+      const cmakeFileName = platform === 'macos' && arch === 'universal'
+        ? `cmake-${resolvedCmakeVersion}-macos-universal`
+        : `cmake-${resolvedCmakeVersion}-${platform}-${arch}`;
+      const cmakeDownloadUrl = `https://github.com/Kitware/CMake/releases/download/v${resolvedCmakeVersion}/${cmakeFileName}.${cmakeFileExtension}`;
+      const cmakeDownloadedArchivePath = await downloadArchive(terrapinTool, cmakeDownloadUrl, cmakeHash);
 
-      // Determine CMake Download Method
-      const cmakeCanUseTerrapin =
-        platform === 'windows' && cmakeHasHash && !disableTerrapin && fs.existsSync(terrapinPath);
-      core.info(`Attempting CMake download via ${cmakeCanUseTerrapin ? 'Terrapin' : 'direct download'}`);
-      if (!cmakeHasHash && !cmakeCanUseTerrapin) {
-        // Warn only if direct downloading without hash
-        core.warning('CMake SECURITY RISK: `cmake-hash` not provided. Integrity will NOT be verified.');
-      }
-
-      // Download CMake
-      const cmakeTempDownloadPath = path.join(runnerTempDir, cmakeArchiveFileName);
-      if (cmakeCanUseTerrapin) {
-        const terrapinBaseUrl = 'https://vcpkg.storage.devpackages.microsoft.io/artifacts/';
-        const terrapinArgs = [
-          '-b',
-          terrapinBaseUrl,
-          '-a',
-          'true',
-          '-u',
-          'Environment',
-          '-p',
-          cmakeDownloadUrl,
-          '-s',
-          cmakeHash,
-          '-d',
-          cmakeTempDownloadPath,
-        ];
-        await core.group('Downloading CMake via Terrapin Tool', async () => {
-          await executeCommand(`"${terrapinPath}"`, terrapinArgs);
-        });
-        cmakeDownloadedArchivePath = cmakeTempDownloadPath; // Track for cleanup
-      } else {
-        await core.group('Downloading CMake directly', async () => {
-          cmakeDownloadedArchivePath = await tc.downloadTool(cmakeDownloadUrl, cmakeTempDownloadPath); // Track for cleanup
-        });
-      }
-      core.info(`CMake download completed. Archive at: ${cmakeDownloadedArchivePath}`);
-      if (!fs.existsSync(cmakeDownloadedArchivePath))
-        throw new Error(`CMake download failed: File not found at ${cmakeDownloadedArchivePath}`);
-
-      // Verify CMake Hash (if provided)
-      if (cmakeHasHash) {
-        core.info('Verifying CMake SHA512 hash...');
-        const cmakeHashMatch = await verifySHA512(cmakeDownloadedArchivePath, cmakeHash);
-        if (!cmakeHashMatch) {
-          cleanupDownload(cmakeDownloadedArchivePath, 'CMake (mismatched hash)'); // Attempt cleanup before throwing
-          throw new Error('CMake SHA512 hash verification failed!');
-        }
-        core.info('CMake SHA512 hash verification successful.');
-      }
-
-      // Extract CMake
-      core.info(`Extracting ${cmakeArchiveFileName}...`);
-      let cmakeTempExtractPath;
-      if (cmakeFileExtension === 'zip') cmakeTempExtractPath = await tc.extractZip(cmakeDownloadedArchivePath);
-      else cmakeTempExtractPath = await tc.extractTar(cmakeDownloadedArchivePath);
-      core.info(`Extracted CMake archive to temporary location: ${cmakeTempExtractPath}`);
+      core.debug(`Extracting ${cmakeDownloadedArchivePath}...`);
+      const cmakeTempExtractPath = cmakeFileExtension === 'zip'
+        ? await tc.extractZip(cmakeDownloadedArchivePath)
+        : await tc.extractTar(cmakeDownloadedArchivePath);
+      core.debug(`Extracted CMake archive to temporary location: ${cmakeTempExtractPath}`);
 
       // Locate CMake Directory
       const cmakePotentialRoot = path.join(cmakeTempExtractPath, cmakeFileName);
@@ -372,8 +343,7 @@ async function run() {
     } else {
       // vcpkg Cache Miss Logic
       core.info(`vcpkg version ${vcpkgVersion} not found in cache. Downloading...`);
-      vcpkgDownloadedZipPath = await downloadVcpkgZip(vcpkgVersion, vcpkgHash, terrapinPath, disableTerrapin); // Track for cleanup
-      await verifySHA512(vcpkgDownloadedZipPath, vcpkgHash); // Throws on mismatch
+      vcpkgDownloadedZipPath = await downloadVcpkgZip(terrapinTool, vcpkgVersion, vcpkgHash); // Track for cleanup
       const vcpkgTempExtractPath = await extractVcpkgZip(vcpkgDownloadedZipPath);
       const vcpkgExtractedPath = findActualVcpkgDir(vcpkgTempExtractPath, vcpkgVersion);
       await bootstrapVcpkg(vcpkgExtractedPath);
