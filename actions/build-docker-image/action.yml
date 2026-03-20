@@ -45,5 +45,5 @@ outputs:
     description: 'The full image name including the checksum tag (e.g., ghcr.io/owner/repo/img:sha256-abcdef123...)'
 
 runs:
-  using: 'node25'
+  using: 'node24'
   main: 'dist/index.js'
