@@ -23,7 +23,7 @@ jobs:
         id: main_checkout # Give this step an ID
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 25
+      - name: Setup Node.js 24
         uses: actions/setup-node@v6
         with:
           node-version: '24'
