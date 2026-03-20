@@ -204,23 +204,39 @@ async function calculateChecksum(hashAlgorithm, dockerfilePath, buildArgsInput, 
  * Attempts to pull the checksum-tagged image. Returns true on success (cache hit).
  */
 async function attemptPullCache(fullImageNameWithTag, shouldPull) {
-  if (!shouldPull) {
-    core.info('Skipping cache pull attempt (pull: false).');
-    return false;
-  }
-  core.info(`Attempting to pull cached image: ${fullImageNameWithTag}`);
-  try {
-    const exitCode = await exec.exec('docker', ['pull', fullImageNameWithTag], { ignoreReturnCode: true });
-    if (exitCode === 0) {
-      core.info(`Cache hit! Image ${fullImageNameWithTag} pulled successfully.`);
-      return true;
-    } else {
-      core.info(`Cache miss. Image ${fullImageNameWithTag} not found or pull failed (Exit code: ${exitCode}).`);
+  if (shouldPull) {
+    core.info(`Attempting to pull cached image: ${fullImageNameWithTag}`);
+    try {
+      const exitCode = await exec.exec('docker', ['pull', fullImageNameWithTag], { ignoreReturnCode: true });
+      if (exitCode === 0) {
+        core.info(`Cache hit! Image ${fullImageNameWithTag} pulled successfully.`);
+        return true;
+      } else {
+        core.info(`Cache miss. Image ${fullImageNameWithTag} not found or pull failed (Exit code: ${exitCode}).`);
+        return false;
+      }
+    } catch (error) {
+      core.warning(`Error during docker pull (treating as cache miss): ${error.message}`);
       return false;
     }
-  } catch (error) {
-    core.warning(`Error during docker pull (treating as cache miss): ${error.message}`);
-    return false;
+  } else {
+    core.info('Skipping cache pull attempt (pull: false).');
+    try {
+      const exitCode = await exec.exec('docker', ['manifest', 'inspect', fullImageNameWithTag], {
+        ignoreReturnCode: true,
+        silent: true,
+      });
+      if (exitCode === 0) {
+        core.info(`Cache hit! Image ${fullImageNameWithTag} exist in cache.`);
+        return true;
+      } else {
+        core.info(`Cache miss. Image ${fullImageNameWithTag} not found (Exit code: ${exitCode}).`);
+        return false;
+      }
+    } catch (error) {
+      core.warning(`Error during docker inspect (treating as cache miss): ${error.message}`);
+      return false;
+    }
   }
 }
 
