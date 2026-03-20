@@ -202,11 +202,28 @@ async function calculateChecksum(hashAlgorithm, dockerfilePath, buildArgsInput, 
 
 /**
  * Attempts to pull the checksum-tagged image. Returns true on success (cache hit).
+ * When shouldPull is false, performs a lightweight remote existence check using
+ * `docker manifest inspect` instead of downloading the image layers.
  */
 async function attemptPullCache(fullImageNameWithTag, shouldPull) {
   if (!shouldPull) {
-    core.info('Skipping cache pull attempt (pull: false).');
-    return true;  // Return true to satisfy the condition where we have a cache hit but don't wish to pull
+    core.info(`Checking remote existence of image without pulling: ${fullImageNameWithTag}`);
+    try {
+      const exitCode = await exec.exec('docker', ['manifest', 'inspect', fullImageNameWithTag], {
+        ignoreReturnCode: true,
+        silent: true,
+      });
+      if (exitCode === 0) {
+        core.info(`Cache hit! Image ${fullImageNameWithTag} exists in registry (manifest check).`);
+        return true;
+      } else {
+        core.info(`Cache miss. Image ${fullImageNameWithTag} not found in registry (Exit code: ${exitCode}).`);
+        return false;
+      }
+    } catch (error) {
+      core.warning(`Error during docker manifest inspect (treating as cache miss): ${error.message}`);
+      return false;
+    }
   }
   core.info(`Attempting to pull cached image: ${fullImageNameWithTag}`);
   try {
@@ -410,7 +427,7 @@ async function run() {
       core.info('Skipping Docker build step due to cache hit.');
     } else {
       if (cacheHit) core.info('Cache hit, but build is not skipped.');
-      else core.info('Cache miss or pull disabled. Building image...');
+      else core.info('Cache miss. Building image...');
 
       await ensureDepsFile(config.contextPath); // Ensure deps copied before build
 
