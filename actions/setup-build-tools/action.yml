@@ -2,6 +2,18 @@ name: 'Setup Build Tools (CMake & vcpkg)'
 description: 'Downloads, verifies, extracts, caches CMake and vcpkg. Optionally adds CMake to PATH and sets VCPKG_INSTALLATION_ROOT.'
 
 inputs:
+  # --- CCache Inputs ---
+  ccache-version:
+    description: 'The CCache version to download (e.g., 4.13).'
+    required: true
+  ccache-hash:
+    description: SHA512 of archive.
+    required: true
+  add-ccache-to-path:
+    description: 'If true, add the CCache bin directory to the PATH environment variable.'
+    required: false
+    default: 'true'
+
   # --- CMake Inputs ---
   cmake-version:
     description: 'The CMake version to download (e.g., 3.28.3).'
@@ -33,6 +45,12 @@ inputs:
     default: 'false'
 
 outputs:
+  # --- CCache Outputs ---
+  ccache-root:
+    description: 'The root directory path of the cached CCache installation.'
+  ccache-path:
+    description: 'The path to the directory containing the CCache executables (added to PATH if add-ccache-to-path is true).'
+
   # --- CMake Outputs ---
   cmake-root:
     description: 'The root directory path of the cached CMake installation.'

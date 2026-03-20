@@ -201,6 +201,54 @@ async function cacheTool(terrapinTool, toolName, version, url, hash, extract) {
   return toolDir;
 }
 
+async function run__ccache(terrapinTool, version, hash, addToPath) {
+  const platform = getPlatformIdentifier();
+  const platformSuffix =
+    platform === 'macos' ? 'darwin.tar.gz' :
+      platform == 'linux' ? `linux-${getArchIdentifier()}-musl-static.tar.xz` :
+        platform === 'windows' ? `windows-${getArchIdentifier()}.zip` :
+          new Error(`Unsupported platform for CCache download: ${platform}`);
+
+  const ccacheDir = await cacheTool(
+    terrapinTool,
+    "ccache", version,
+    `https://github.com/ccache/ccache/releases/download/v${version}/ccache-${version}-${platformSuffix}`, hash,
+    async (download) => {
+      core.debug(`Extracting ${download}...`);
+      const extractDir = platform === 'windows'
+        ? await tc.extractZip(download)
+        : await tc.extractTar(download, undefined, 'x'); // infer extract type from extension
+      core.debug(`Extracted archive to temporary location: ${extractDir}`);
+
+      const dirs = fs.readdirSync(extractDir).filter((f) => fs.statSync(path.join(extractDir, f)).isDirectory());
+      if (dirs.length !== 1) throw new Error(
+        `Could not locate extracted ccache directory in ${extractDir}. Found: ${dirs.join(', ')}`
+      );
+
+      core.warning(`Assuming single directory '${dirs[0]}' is CCache root.`);
+      return path.join(extractDir, dirs[0]);
+    });
+  core.info(`Located extracted CCache root at: ${ccacheDir}`);
+
+  if (addToPath) {
+    core.info(`Adding ${ccacheDir} to PATH.`);
+    addPath(ccacheDir);
+
+    try {
+      // Verify Installation via PATH
+      await exec.exec('ccache', ['--version']);
+    } catch (error) {
+      throw new Error(`Verification 'ccache --version' failed: ${error.message}. Check PATH or CCache installation.`, { cause: error });
+    }
+  } else {
+    core.info(`Skipping adding ${ccacheDir} to PATH.`);
+  }
+
+  // for now they're the same, but let's keep it separate for consistency with CMake
+  core.setOutput('ccache-root', ccacheDir);
+  core.setOutput('ccache-path', ccacheDir);
+}
+
 async function run__cmake(terrapinTool, version, hash, addToPath) {
   const platform = getPlatformIdentifier();
   const arch = getArchIdentifier();
@@ -216,7 +264,7 @@ async function run__cmake(terrapinTool, version, hash, addToPath) {
       const extractDir = cmakeFileExtension === 'zip'
         ? await tc.extractZip(download)
         : await tc.extractTar(download);
-      core.debug(`Extracted CMake archive to temporary location: ${extractDir}`);
+      core.debug(`Extracted archive to temporary location: ${extractDir}`);
 
       // Locate CMake Directory
       const maybeRoot = path.join(extractDir, cmakeFileName);
@@ -274,7 +322,10 @@ async function run__vcpkg(terrapinTool, version, hash) {
 // --- Main Orchestration Function ---
 async function run() {
   try {
-    // --- Get Combined Inputs ---
+    const ccacheVersion = core.getInput('ccache-version', { required: true });
+    const ccacheHash = core.getInput('ccache-hash', { required: true });
+    const addCCacheToPath = core.getBooleanInput('add-ccache-to-path');
+
     const cmakeVersion = core.getInput('cmake-version', { required: true });
     const cmakeHash = core.getInput('cmake-hash', { required: true });
     const addCMakeToPath = core.getBooleanInput('add-cmake-to-path');
@@ -286,6 +337,7 @@ async function run() {
     const allowTerrapin = !core.getBooleanInput('disable-terrapin'); // keep logic positive to minimise double negatives
 
     const terrapinTool = terrapinAvailable(terrapinPath, allowTerrapin) ? terrapinPath : null;
+    await core.group(`Setup ccache`, async () => { await run__ccache(terrapinTool, ccacheVersion, ccacheHash, addCCacheToPath) });
     await core.group(`Setup cmake`, async () => { await run__cmake(terrapinTool, cmakeVersion, cmakeHash, addCMakeToPath) });
     await core.group(`Setup vcpkg`, async () => { await run__vcpkg(terrapinTool, vcpkgVersion, vcpkgHash) });
   } catch (error) {
