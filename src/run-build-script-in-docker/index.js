@@ -132,7 +132,6 @@ async function run() {
         const homeDir = os.homedir();
         const homeOnnxDir = path.join(homeDir, '.onnx');
         const hostCacheDir = path.join(homeDir, '.cache');
-        const hostCCacheDir = path.join(homeDir, '.ccache');
         const containerHomeDir = containerUser ? `/home/${containerUser}` : '/root';
         if (!workspaceDir) throw new Error('GITHUB_WORKSPACE not set.');
 
@@ -143,8 +142,6 @@ async function run() {
         const dataModelsExists = await checkPathExists(hostDataModelsPath);
         const enableOnnxTestsFlag = dataOnnxExists && dataModelsExists;
         core.info(`--enable_onnx_tests will be ${enableOnnxTestsFlag ? 'added' : 'skipped'}.`);
-
-        await fs.mkdir(hostCCacheDir, { recursive: true }); // ensure ccache exists for mounting
 
         // --- Check for GPU ---
         const gpuAvailable = await checkGpu();
@@ -221,7 +218,6 @@ async function run() {
         dockerArgs.push('--volume', `${workspaceDir}:/onnxruntime_src`);
         dockerArgs.push('--volume', `${runnerTempDir}:/onnxruntime_src/build`);
         dockerArgs.push('--volume', `${hostCacheDir}:${containerHomeDir}/.cache`); // Use determined container home
-        dockerArgs.push('--volume', `${hostCCacheDir}:${containerHomeDir}/.ccache`);
         if (lowerCaseRunMode === 'test') {
             core.info('Mode is "test", checking test data mounts.');
             if (dataOnnxExists) {
@@ -249,6 +245,7 @@ async function run() {
         dockerArgs.push('-e', `ALLOW_RELEASED_ONNX_OPSET_ONLY=${allowOpset}`);
         dockerArgs.push('-e', `NIGHTLY_BUILD=${nightlyBuild}`);
         dockerArgs.push('-e', 'RUNNER_TEMP=/onnxruntime_src/build');
+        dockerArgs.push('-e', `CCACHE_DIR=${containerHomeDir}/.cache/ccache`); // be explicit, in case this is an older version of ccache
         dockerArgs.push(dockerImage);
         // Pass the full command sequence
         dockerArgs.push('/bin/bash', '-c', fullDockerCommand);
