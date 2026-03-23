@@ -17,7 +17,7 @@ async function runCommand(command, args = [], options = {}) {
     const effectiveOptions = {
         cwd: defaultCwd, // Apply default
         ignoreReturnCode: false, // Throw error on failure by default
-        silent: false, // Show command output by default        
+        silent: false, // Show command output by default
         ...options // Apply overrides from caller (like cwd)
     };
 
@@ -28,9 +28,9 @@ async function runCommand(command, args = [], options = {}) {
         const { exitCode, stdout, stderr } = await exec.getExecOutput(command, args, effectiveOptions);
 
         if (exitCode !== 0 && !effectiveOptions.ignoreReturnCode) {
-             // Log stderr specifically as error if command failed
-             core.error(`Stderr: ${stderr}`);
-             throw new Error(`Command exited with code ${exitCode}: ${command} ${args.join(' ')}`);
+            // Log stderr specifically as error if command failed
+            core.error(`Stderr: ${stderr}`);
+            throw new Error(`Command exited with code ${exitCode}: ${command} ${args.join(' ')}`);
         }
         core.info(`Finished: ${command} ${args.join(' ')}`);
         return { exitCode, stdout, stderr };
@@ -98,6 +98,7 @@ async function main() {
             '--config', 'Debug',
             '--skip_submodule_sync',
             '--parallel',
+            '--use_cache',
             '--use_vcpkg',
             '--use_vcpkg_ms_internal_asset_cache',
             '--use_binskim_compliant_compile_flags',
@@ -108,7 +109,10 @@ async function main() {
             '--use_coreml'
         ];
         // Run build from the workspace directory
+        await runCommand('ccache', ['--version']);
+        await runCommand('ccache', ['--zero-stats']);
         await runCommand('python3', buildArgs, { cwd: workspaceDir });
+        await runCommand('ccache', ['--show-stats', '-vv']); // assume a modern ccache was provided by `setup-build-tools` action
         core.endGroup();
 
         // --- Step 4: Install the ORT Python Wheel ---
@@ -183,9 +187,9 @@ async function main() {
         let filesCopied = 0;
         try {
             const customOpOnnxFiles = (await fs.readdir(customOpSrcDir)).filter(f => f.endsWith('.onnx'));
-             if (customOpOnnxFiles.length === 0) {
+            if (customOpOnnxFiles.length === 0) {
                 core.warning(`No .onnx files found in ${customOpSrcDir} to copy.`);
-             } else {
+            } else {
                 for (const file of customOpOnnxFiles) {
                     const src = path.join(customOpSrcDir, file);
                     const dest = path.join(customOpsTestDataDir, file);
@@ -193,9 +197,9 @@ async function main() {
                     core.info(`Copied ${file}`);
                     filesCopied++;
                 }
-             }
-             core.info(`Copied ${filesCopied} custom op model files.`);
-        } catch(copyError) {
+            }
+            core.info(`Copied ${filesCopied} custom op model files.`);
+        } catch (copyError) {
             core.warning(`Could not copy custom op models from ${customOpSrcDir}: ${copyError.message}`);
         }
 
