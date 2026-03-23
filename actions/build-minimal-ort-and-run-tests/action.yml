@@ -29,5 +29,5 @@ inputs:
     description: 'Optional threshold in bytes passed to check_build_binary_size.py.'
     required: false
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'

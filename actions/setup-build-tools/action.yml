@@ -50,5 +50,5 @@ outputs:
     description: 'The installation path of the cached vcpkg instance (also set as VCPKG_INSTALLATION_ROOT env var).'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'

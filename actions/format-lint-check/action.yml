@@ -14,5 +14,5 @@ inputs:
     default: ''
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js' # This will point to the built file later
