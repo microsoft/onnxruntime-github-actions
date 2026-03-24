@@ -1,7 +1,6 @@
 const core = require('@actions/core');
 const tc = require('@actions/tool-cache');
 const exec = require('@actions/exec');
-const github = require('@actions/github');
 const path = require('node:path');
 const assert = require('node:assert');
 const crypto = require("node:crypto");
