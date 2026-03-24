@@ -198,7 +198,10 @@ async function main() {
             core.info('Input `enable-type-reduction` is true. Assuming the provided `reduced-ops-config-file` was generated with type reduction enabled.');
         }
 
+        await runCommand('ccache', ['--version']);
+        await runCommand('ccache', ['--zero-stats']);
         await runCommand('python3', buildArgs.filter(arg => arg !== ''), { cwd: workspaceDir }); // Filter empty string from minimalBuildArgs
+        await runCommand('ccache', ['--show-stats', '-vv']); // assume a modern ccache was provided by `setup-build-tools` action
         core.endGroup();
 
         // --- Run E2E Model Tests ---

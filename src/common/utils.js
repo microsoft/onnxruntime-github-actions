@@ -34,10 +34,9 @@ function exportVariable(name, value) {
  * @param {string} path The directory to add to the PATH.
  */
 function addPath(path) {
-  if (isGitHub) {
-    core.addPath(path);
-  } else {
-    // Azure DevOps logging command to prepend a path
+  core.addPath(path);
+  if (!isGitHub) {
+    // Azure DevOps logging command to prepend a path, otherwise it won't persist for subsequent tasks
     console.log(`##vso[task.prependpath]${path}`);
   }
 }
@@ -59,7 +58,7 @@ async function executeCommand(command, args, options = {}) {
     options.sensitive && process.env.GITHUB_TOKEN && arg === process.env.GITHUB_TOKEN
       ? '***' // Mask GITHUB_TOKEN if sensitive option is true
       : // Add more conditions here for other sensitive args if needed
-        arg
+      arg
   );
 
   // Log the command with potentially masked arguments
@@ -103,10 +102,16 @@ async function verifySHA512(filePath, expectedHash) {
     stream.on('data', (chunk) => hash.update(chunk));
     stream.on('end', () => {
       const actualHash = hash.digest('hex');
-      core.debug(`Actual SHA512: ${actualHash}`);
-      core.debug(`Expected SHA512: ${expectedHash}`);
       const match = actualHash.toLowerCase() === expectedHash.toLowerCase();
-      core.info(`SHA512 Verification Result for ${path.basename(filePath)}: ${match ? 'Match' : 'Mismatch'}`);
+      if (match) {
+        core.debug(`SHA512 hash matches for file: ${filePath}`);
+        core.debug(`SHA512: '${actualHash.toLowerCase()}'`);
+      } else {
+        core.warning(`Actual   SHA512: '${actualHash.toLowerCase()}'`);
+        core.warning(`Expected SHA512: '${expectedHash.toLowerCase()}'`);
+        core.warning(`SHA512 hash mismatch for file: ${filePath}`);
+      }
+
       resolve(match);
     });
   });
@@ -245,12 +250,12 @@ async function generateTestSummary(baseDir) {
   const allTestCases = []; // <--- NEW: Array to store individual test cases {suite, case, time}
 
   const parserOptions = {
-      ignoreAttributes: false,
-      attributeNamePrefix: "", // No prefix for attributes
-      parseAttributeValue: true, // Convert attribute values to primitive types if possible
-      allowBooleanAttributes: true,
-      trimValues: true,
-      ignoreDeclaration: true
+    ignoreAttributes: false,
+    attributeNamePrefix: "", // No prefix for attributes
+    parseAttributeValue: true, // Convert attribute values to primitive types if possible
+    allowBooleanAttributes: true,
+    trimValues: true,
+    ignoreDeclaration: true
   };
   const parser = new XMLParser(parserOptions);
 
@@ -262,144 +267,144 @@ async function generateTestSummary(baseDir) {
 
     const globber = await glob.create(xmlPattern, { followSymbolicLinks: false });
     for await (const file of globber.globGenerator()) {
-        filesProcessed++;
-        const fileName = path.relative(baseDir, file) || path.basename(file);
-        processedFiles.push(fileName);
-        core.debug(`--- Processing file: ${fileName} ---`);
-        let fileContent;
+      filesProcessed++;
+      const fileName = path.relative(baseDir, file) || path.basename(file);
+      processedFiles.push(fileName);
+      core.debug(`--- Processing file: ${fileName} ---`);
+      let fileContent;
 
-        // Reset counters for the current file before processing
-        let fileTests = 0, fileFailures = 0, fileErrors = 0, fileSkipped = 0;
+      // Reset counters for the current file before processing
+      let fileTests = 0, fileFailures = 0, fileErrors = 0, fileSkipped = 0;
 
-        try {
-            fileContent = await fs.readFile(file, 'utf8');
-            const validationResult = XMLValidator.validate(fileContent);
-            if (validationResult !== true) {
-                const err = validationResult.err;
-                core.warning(`Invalid XML syntax in ${fileName}: ${err.msg} (Line: ${err.line}, Col: ${err.col})`);
-                failedFiles.push(`${fileName} (syntax error)`);
-                continue;
-            }
-
-            const result = parser.parse(fileContent);
-            core.debug(`Parsed XML structure: ${JSON.stringify(result, null, 2)}`);
-
-            const rootKey = Object.keys(result)[0];
-            if (!rootKey) {
-                core.warning(`Could not determine root tag in ${fileName}.`);
-                failedFiles.push(`${fileName} (structure error - no root key)`);
-                continue;
-            }
-            const topLevelData = result[rootKey]; // This is the object/array under the root tag
-
-            core.debug(`Root Key: ${rootKey}, Top Level Data Type: ${typeof topLevelData}`);
-
-            let suitesToProcess = [];
-
-            if (rootKey === 'testsuites') {
-                // Root is <testsuites>, contains potentially multiple <testsuite>
-                if (topLevelData && topLevelData.testsuite) {
-                    suitesToProcess = Array.isArray(topLevelData.testsuite)
-                        ? topLevelData.testsuite
-                        : [topLevelData.testsuite];
-                    core.debug(`Found ${suitesToProcess.length} <testsuite> elements under <testsuites>`);
-                } else {
-                     core.debug(`<testsuites> root found, but no child <testsuite> elements detected.`);
-                     // Check <testsuites> attributes for summary (less common)
-                    if (typeof topLevelData === 'object' && topLevelData !== null) {
-                        const attrs = topLevelData;
-                        const t = Number(attrs.tests || 0);
-                        const f = Number(attrs.failures || 0);
-                        const e = Number(attrs.errors || 0);
-                        const s = Number(attrs.skipped || attrs.disabled || 0);
-                        if (!isNaN(t) && !isNaN(f) && !isNaN(e) && !isNaN(s) && (t > 0 || f > 0 || e > 0 || s > 0)) {
-                            fileTests = t; fileFailures = f; fileErrors = e; fileSkipped = s;
-                            core.debug(`Using summary counts found directly on <testsuites> tag.`);
-                        }
-                    }
-                }
-            } else if (rootKey === 'testsuite') {
-                // Root is a single <testsuite>
-                if (topLevelData) {
-                    suitesToProcess = [topLevelData]; // Process this single suite
-                    core.debug(`Root is a single <testsuite> element.`);
-                }
-            } else {
-                core.warning(`Unexpected root tag <${rootKey}> found in ${fileName}. Skipping counts.`);
-                failedFiles.push(`${fileName} (unexpected root tag)`);
-                continue; // Skip count aggregation for this file
-            }
-
-            // Iterate through the identified testsuite objects
-            for (const suite of suitesToProcess) {
-                if (typeof suite === 'object' && suite !== null) {
-                    core.debug(`Processing suite object: ${JSON.stringify(suite, null, 2)}`);
-                    const suiteName = suite.name || 'UnknownSuite'; // Get suite name
-                    const attrs = suite;
-
-                    // Aggregate counts from suite attributes
-                    const t = Number(attrs.tests || 0);
-                    const f = Number(attrs.failures || 0);
-                    const e = Number(attrs.errors || 0);
-                    const s = Number(attrs.skipped ?? attrs.disabled ?? 0);
-
-                    if (isNaN(t) || isNaN(f) || isNaN(e) || isNaN(s)) {
-                         core.warning(`Non-numeric test counts found in attributes of a <testsuite name="${suiteName}"> tag in ${fileName}.`);
-                    } else {
-                        fileTests += t;
-                        fileFailures += f;
-                        fileErrors += e;
-                        fileSkipped += s;
-                    }
-
-                    // --- NEW: Process individual test cases ---
-                    if (suite.testcase) {
-                        const testCases = Array.isArray(suite.testcase) ? suite.testcase : [suite.testcase];
-                        core.debug(` Found ${testCases.length} <testcase> elements in suite "${suiteName}"`);
-                        for (const tc of testCases) {
-                            if (typeof tc === 'object' && tc !== null) {
-                                const caseName = tc.name;
-                                const caseTime = tc.time; // Should be parsed as number by parseAttributeValue: true
-
-                                // Check if data is valid for sorting
-                                if (caseName && typeof caseTime === 'number' && !isNaN(caseTime)) {
-                                    allTestCases.push({
-                                        suite: suiteName,
-                                        case: caseName,
-                                        time: caseTime
-                                    });
-                                    core.debug(`  Added test case: ${suiteName} / ${caseName} / ${caseTime}`);
-                                } else {
-                                    core.debug(`  Skipping test case with missing name or invalid time: ${JSON.stringify(tc)}`);
-                                }
-                            }
-                        }
-                    } else {
-                         core.debug(` No <testcase> elements found in suite "${suiteName}"`);
-                    }
-                    // --- End NEW ---
-
-                } else {
-                    core.warning(`Encountered non-object item in suitesToProcess for ${fileName}. Skipping item.`);
-                }
-            } // End loop through suitesToProcess
-
-             // Add file totals to overall totals outside the suite loop
-             totalTests += fileTests;
-             totalFailures += fileFailures;
-             totalErrors += fileErrors;
-             totalSkipped += fileSkipped;
-             core.debug(` -> Aggregated Counts for ${fileName} - Tests: ${fileTests}, Failures: ${fileFailures}, Errors: ${fileErrors}, Skipped: ${fileSkipped}`);
-             core.debug(` -> Running Totals - Tests: ${totalTests}, Failures: ${totalFailures}, Errors: ${totalErrors}, Skipped: ${totalSkipped}`);
-
-
-        } catch (error) {
-            const errorCode = error.code ? ` (${error.code})` : '';
-            core.warning(`Error processing file ${fileName}${errorCode}: ${error.message}`);
-            core.debug(error.stack); // Log stack for debug
-            failedFiles.push(`${fileName} (processing error)`);
+      try {
+        fileContent = await fs.readFile(file, 'utf8');
+        const validationResult = XMLValidator.validate(fileContent);
+        if (validationResult !== true) {
+          const err = validationResult.err;
+          core.warning(`Invalid XML syntax in ${fileName}: ${err.msg} (Line: ${err.line}, Col: ${err.col})`);
+          failedFiles.push(`${fileName} (syntax error)`);
+          continue;
         }
-        core.debug(`--- Finished processing file: ${fileName} ---`);
+
+        const result = parser.parse(fileContent);
+        core.debug(`Parsed XML structure: ${JSON.stringify(result, null, 2)}`);
+
+        const rootKey = Object.keys(result)[0];
+        if (!rootKey) {
+          core.warning(`Could not determine root tag in ${fileName}.`);
+          failedFiles.push(`${fileName} (structure error - no root key)`);
+          continue;
+        }
+        const topLevelData = result[rootKey]; // This is the object/array under the root tag
+
+        core.debug(`Root Key: ${rootKey}, Top Level Data Type: ${typeof topLevelData}`);
+
+        let suitesToProcess = [];
+
+        if (rootKey === 'testsuites') {
+          // Root is <testsuites>, contains potentially multiple <testsuite>
+          if (topLevelData && topLevelData.testsuite) {
+            suitesToProcess = Array.isArray(topLevelData.testsuite)
+              ? topLevelData.testsuite
+              : [topLevelData.testsuite];
+            core.debug(`Found ${suitesToProcess.length} <testsuite> elements under <testsuites>`);
+          } else {
+            core.debug(`<testsuites> root found, but no child <testsuite> elements detected.`);
+            // Check <testsuites> attributes for summary (less common)
+            if (typeof topLevelData === 'object' && topLevelData !== null) {
+              const attrs = topLevelData;
+              const t = Number(attrs.tests || 0);
+              const f = Number(attrs.failures || 0);
+              const e = Number(attrs.errors || 0);
+              const s = Number(attrs.skipped || attrs.disabled || 0);
+              if (!isNaN(t) && !isNaN(f) && !isNaN(e) && !isNaN(s) && (t > 0 || f > 0 || e > 0 || s > 0)) {
+                fileTests = t; fileFailures = f; fileErrors = e; fileSkipped = s;
+                core.debug(`Using summary counts found directly on <testsuites> tag.`);
+              }
+            }
+          }
+        } else if (rootKey === 'testsuite') {
+          // Root is a single <testsuite>
+          if (topLevelData) {
+            suitesToProcess = [topLevelData]; // Process this single suite
+            core.debug(`Root is a single <testsuite> element.`);
+          }
+        } else {
+          core.warning(`Unexpected root tag <${rootKey}> found in ${fileName}. Skipping counts.`);
+          failedFiles.push(`${fileName} (unexpected root tag)`);
+          continue; // Skip count aggregation for this file
+        }
+
+        // Iterate through the identified testsuite objects
+        for (const suite of suitesToProcess) {
+          if (typeof suite === 'object' && suite !== null) {
+            core.debug(`Processing suite object: ${JSON.stringify(suite, null, 2)}`);
+            const suiteName = suite.name || 'UnknownSuite'; // Get suite name
+            const attrs = suite;
+
+            // Aggregate counts from suite attributes
+            const t = Number(attrs.tests || 0);
+            const f = Number(attrs.failures || 0);
+            const e = Number(attrs.errors || 0);
+            const s = Number(attrs.skipped ?? attrs.disabled ?? 0);
+
+            if (isNaN(t) || isNaN(f) || isNaN(e) || isNaN(s)) {
+              core.warning(`Non-numeric test counts found in attributes of a <testsuite name="${suiteName}"> tag in ${fileName}.`);
+            } else {
+              fileTests += t;
+              fileFailures += f;
+              fileErrors += e;
+              fileSkipped += s;
+            }
+
+            // --- NEW: Process individual test cases ---
+            if (suite.testcase) {
+              const testCases = Array.isArray(suite.testcase) ? suite.testcase : [suite.testcase];
+              core.debug(` Found ${testCases.length} <testcase> elements in suite "${suiteName}"`);
+              for (const tc of testCases) {
+                if (typeof tc === 'object' && tc !== null) {
+                  const caseName = tc.name;
+                  const caseTime = tc.time; // Should be parsed as number by parseAttributeValue: true
+
+                  // Check if data is valid for sorting
+                  if (caseName && typeof caseTime === 'number' && !isNaN(caseTime)) {
+                    allTestCases.push({
+                      suite: suiteName,
+                      case: caseName,
+                      time: caseTime
+                    });
+                    core.debug(`  Added test case: ${suiteName} / ${caseName} / ${caseTime}`);
+                  } else {
+                    core.debug(`  Skipping test case with missing name or invalid time: ${JSON.stringify(tc)}`);
+                  }
+                }
+              }
+            } else {
+              core.debug(` No <testcase> elements found in suite "${suiteName}"`);
+            }
+            // --- End NEW ---
+
+          } else {
+            core.warning(`Encountered non-object item in suitesToProcess for ${fileName}. Skipping item.`);
+          }
+        } // End loop through suitesToProcess
+
+        // Add file totals to overall totals outside the suite loop
+        totalTests += fileTests;
+        totalFailures += fileFailures;
+        totalErrors += fileErrors;
+        totalSkipped += fileSkipped;
+        core.debug(` -> Aggregated Counts for ${fileName} - Tests: ${fileTests}, Failures: ${fileFailures}, Errors: ${fileErrors}, Skipped: ${fileSkipped}`);
+        core.debug(` -> Running Totals - Tests: ${totalTests}, Failures: ${totalFailures}, Errors: ${totalErrors}, Skipped: ${totalSkipped}`);
+
+
+      } catch (error) {
+        const errorCode = error.code ? ` (${error.code})` : '';
+        core.warning(`Error processing file ${fileName}${errorCode}: ${error.message}`);
+        core.debug(error.stack); // Log stack for debug
+        failedFiles.push(`${fileName} (processing error)`);
+      }
+      core.debug(`--- Finished processing file: ${fileName} ---`);
     } // End for loop over files
 
     // --- Generate Summary Markdown ---
@@ -420,33 +425,32 @@ async function generateTestSummary(baseDir) {
       summaryMarkdown += `| Metric        | Count |\n`;
       summaryMarkdown += `| ------------- | ----: |\n`;
       summaryMarkdown += `| Total Tests   | ${totalTests} |\n`;
-      summaryMarkdown += `| Failures      | ${
-        totalFailures > 0 ? `**${totalFailures}** ❌` : totalFailures
-      } |\n`;
+      summaryMarkdown += `| Failures      | ${totalFailures > 0 ? `**${totalFailures}** ❌` : totalFailures
+        } |\n`;
       summaryMarkdown += `| Errors        | ${totalErrors > 0 ? `**${totalErrors}** ❌` : totalErrors} |\n`;
       summaryMarkdown += `| Skipped       | ${totalSkipped} |\n`;
       summaryMarkdown += `| **Overall** | **${overallStatus}** |\n\n`;
 
       // --- NEW: Generate Top 10 Slowest Tests ---
       if (allTestCases.length > 0) {
-            // Sort by time descending
-            allTestCases.sort((a, b) => b.time - a.time);
-            const slowestTests = allTestCases.slice(0, 10);
+        // Sort by time descending
+        allTestCases.sort((a, b) => b.time - a.time);
+        const slowestTests = allTestCases.slice(0, 10);
 
-            summaryMarkdown += `### Top ${slowestTests.length} Slowest Tests\n\n`;
-            summaryMarkdown += `| Rank | Time (s) | Suite Name      | Test Case Name  |\n`;
-            summaryMarkdown += `| ---- | -------- | --------------- | --------------- |\n`;
-            slowestTests.forEach((test, index) => {
-                // Format time to 3 decimal places
-                const timeFormatted = test.time.toFixed(3);
-                // Escape pipe characters in names to prevent breaking markdown table
-                const suiteEscaped = test.suite.replace(/([\\|])/g, '\\$1');
-                const caseEscaped = test.case.replace(/([\\|])/g, '\\$1');
-                summaryMarkdown += `| ${index + 1} | ${timeFormatted} | ${suiteEscaped} | ${caseEscaped} |\n`;
-            });
-            summaryMarkdown += '\n';
+        summaryMarkdown += `### Top ${slowestTests.length} Slowest Tests\n\n`;
+        summaryMarkdown += `| Rank | Time (s) | Suite Name      | Test Case Name  |\n`;
+        summaryMarkdown += `| ---- | -------- | --------------- | --------------- |\n`;
+        slowestTests.forEach((test, index) => {
+          // Format time to 3 decimal places
+          const timeFormatted = test.time.toFixed(3);
+          // Escape pipe characters in names to prevent breaking markdown table
+          const suiteEscaped = test.suite.replace(/([\\|])/g, '\\$1');
+          const caseEscaped = test.case.replace(/([\\|])/g, '\\$1');
+          summaryMarkdown += `| ${index + 1} | ${timeFormatted} | ${suiteEscaped} | ${caseEscaped} |\n`;
+        });
+        summaryMarkdown += '\n';
       } else {
-           summaryMarkdown += `No individual test case times found to determine slowest tests.\n\n`;
+        summaryMarkdown += `No individual test case times found to determine slowest tests.\n\n`;
       }
       // --- End NEW ---
 
@@ -469,11 +473,11 @@ async function generateTestSummary(baseDir) {
     }
 
   } catch (error) {
-      if (error.code === 'ENOENT') {
-        core.info(`Test result base directory ${baseDir} not found. Skipping summary generation.`);
-      } else {
-        core.error(`Error reading test result directory ${baseDir} or globbing files: ${error.message}`);
-      }
+    if (error.code === 'ENOENT') {
+      core.info(`Test result base directory ${baseDir} not found. Skipping summary generation.`);
+    } else {
+      core.error(`Error reading test result directory ${baseDir} or globbing files: ${error.message}`);
+    }
   } finally {
     core.endGroup();
   }
