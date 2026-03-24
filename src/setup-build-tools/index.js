@@ -3,7 +3,7 @@ const tc = require('@actions/tool-cache');
 const exec = require('@actions/exec');
 const path = require('node:path');
 const assert = require('node:assert');
-const crypto = require("node:crypto");
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 
