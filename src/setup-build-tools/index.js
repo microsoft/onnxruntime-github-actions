@@ -93,7 +93,7 @@ async function downloadArchive(terrapinTool, downloadUrl, hash) {
   }
 
   if (!fs.existsSync(downloadedFile)) { // Verify download happened
-    throw new Error(`vcpkg download failed: Expected file not found at ${downloadedFile}.`);
+    throw new Error(`download failed, expected file not found at: ${downloadedFile}`);
   }
 
   try {
