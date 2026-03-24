@@ -1,5 +1,5 @@
 name: 'Setup Build Tools (CMake & vcpkg)'
-description: 'Downloads, verifies, extracts, caches CMake and vcpkg. Optionally adds CMake to PATH and sets VCPKG_INSTALLATION_ROOT.'
+description: 'Downloads, verifies, extracts, and caches tooling. Optionally adds tools to PATH and sets VCPKG_INSTALLATION_ROOT.'
 
 inputs:
   # --- CCache Inputs ---
