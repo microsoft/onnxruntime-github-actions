@@ -13,7 +13,7 @@ const utils = require('../../src/common/utils'); // Adjust path as needed
 // Mock dependencies
 jest.mock('@actions/core');
 jest.mock('@actions/exec');
-jest.mock('@actions/glob'); 
+jest.mock('@actions/glob');
 // Mocking crypto
 const mockUpdate = jest.fn();
 const mockDigest = jest.fn();
@@ -172,7 +172,8 @@ describe('Common Utils', () => {
       expect(crypto.createHash).toHaveBeenCalledWith('sha512');
       expect(mockUpdate).toHaveBeenCalledTimes(2); // Called twice in mock stream
       expect(mockDigest).toHaveBeenCalledWith('hex');
-      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Verification Result for file.zip: Match'));
+      expect(core.info).toHaveBeenCalledTimes(1); // success should write exactly once to info ('calculating hash...')
+      expect(core.debug).toHaveBeenCalled(); // success should note it in debug logs
     });
 
     it('should return false for non-matching hash', async () => {
@@ -182,7 +183,7 @@ describe('Common Utils', () => {
 
       expect(result).toBe(false);
       expect(mockDigest).toHaveBeenCalledWith('hex');
-      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Verification Result for file.zip: Mismatch'));
+      expect(core.warning).toHaveBeenCalled(); // should write to warning on failure
     });
 
     it('should reject if stream emits error', async () => {
