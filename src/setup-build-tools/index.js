@@ -200,11 +200,12 @@ async function cacheTool(terrapinTool, toolName, version, url, hash, extract) {
   return toolDir;
 }
 
+
 async function run__ccache(terrapinTool, version, hash, addToPath) {
   const platform = getPlatformIdentifier();
   const platformSuffix =
-    platform === 'macos' ? 'darwin.tar.gz' :
-      platform == 'linux' ? `linux-${getArchIdentifier()}-musl-static.tar.xz` :
+    platform == 'linux' ? `linux-${getArchIdentifier()}-musl-static.tar.xz` :
+      platform === 'macos' ? 'darwin.tar.gz' :
         platform === 'windows' ? `windows-${getArchIdentifier()}.zip` :
           new Error(`Unsupported platform for CCache download: ${platform}`);
 
@@ -247,6 +248,7 @@ async function run__ccache(terrapinTool, version, hash, addToPath) {
   core.setOutput('ccache-root', ccacheDir);
   core.setOutput('ccache-path', ccacheDir);
 }
+
 
 async function run__cmake(terrapinTool, version, hash, addToPath) {
   const platform = getPlatformIdentifier();
@@ -303,6 +305,51 @@ async function run__cmake(terrapinTool, version, hash, addToPath) {
   core.setOutput('cmake-path', binPath);
 }
 
+
+async function run__ninja(terrapinTool, version, hash, addToPath) {
+  const platform = getPlatformIdentifier();
+  const platformFile =
+    platform == 'linux' ? `ninja-linux.zip` :
+      platform === 'macos' ? 'ninja-mac.zip' :
+        platform === 'windows' ? `ninja-win.zip` :
+          new Error(`Unsupported platform for Ninja download: ${platform}`);
+
+  const ninjaDir = await cacheTool(
+    terrapinTool,
+    "ninja", version,
+    `https://github.com/ninja-build/ninja/releases/download/v${version}/${platformFile}`, hash,
+    async (download) => {
+      core.debug(`Extracting ${download}...`);
+      const extractDir = await tc.extractZip(download);
+      core.debug(`Extracted archive to temporary location: ${extractDir}`);
+
+      const dirs = fs.readdirSync(extractDir).filter((f) => fs.statSync(path.join(extractDir, f)).isDirectory());
+      if (dirs.length === 0) return extractDir; // some releases have it directly in the root
+      if (dirs.length !== 1) throw new Error(
+        `Could not locate extracted Ninja directory in ${extractDir}. Found: ${dirs.join(', ')}`
+      );
+
+      core.warning(`Assuming single directory '${dirs[0]}' is Ninja root.`);
+      return path.join(extractDir, dirs[0]);
+    });
+  core.info(`Located extracted Ninja root at: ${ninjaDir}`);
+
+  core.info(`Adding ${ninjaDir} to PATH.`);
+  addPath(ninjaDir);
+
+  try {
+    // Verify Installation via PATH
+    await exec.exec('ninja', ['--version']);
+  } catch (error) {
+    throw new Error(`Verification 'ninja --version' failed: ${error.message}. Check PATH or Ninja installation.`, { cause: error });
+  }
+
+  // for now they're the same, but let's keep it separate for consistency with CMake
+  core.setOutput('ninja-root', ninjaDir);
+  core.setOutput('ninja-path', ninjaDir);
+}
+
+
 async function run__vcpkg(terrapinTool, version, hash) {
   const vcpkgDir = await cacheTool(
     terrapinTool,
@@ -329,6 +376,9 @@ async function run() {
     const cmakeHash = core.getInput('cmake-hash', { required: true });
     const addCMakeToPath = core.getBooleanInput('add-cmake-to-path');
 
+    const ninjaVersion = core.getInput('ninja-version', { required: false });
+    const ninjaHash = core.getInput('ninja-hash', { required: false });
+
     const vcpkgVersion = core.getInput('vcpkg-version', { required: true });
     const vcpkgHash = core.getInput('vcpkg-hash', { required: true });
 
@@ -338,6 +388,12 @@ async function run() {
     const terrapinTool = terrapinAvailable(terrapinPath, allowTerrapin) ? terrapinPath : null;
     await core.group(`Setup ccache`, async () => { await run__ccache(terrapinTool, ccacheVersion, ccacheHash, addCCacheToPath) });
     await core.group(`Setup cmake`, async () => { await run__cmake(terrapinTool, cmakeVersion, cmakeHash, addCMakeToPath) });
+    if (ninjaVersion !== '' || ninjaHash !== '') {
+      if (ninjaVersion === '' || ninjaHash === '') {
+        throw new Error('Either both `ninja-version` and `ninja-hash` must be provided, or neither must be provided.');
+      }
+      await core.group(`Setup ninja`, async () => { await run__ninja(terrapinTool, ninjaVersion, ninjaHash) });
+    }
     await core.group(`Setup vcpkg`, async () => { await run__vcpkg(terrapinTool, vcpkgVersion, vcpkgHash) });
   } catch (error) {
     // Fail the action with the error message
