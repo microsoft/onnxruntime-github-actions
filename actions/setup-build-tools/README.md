@@ -25,6 +25,8 @@ This action combines and replaces the functionality of the previous separate `se
 | `cmake-version`      | The CMake version to download (e.g., `3.29.0`) or the string `"latest"` to fetch the newest release via GitHub API.                                                               |  `true`  | -                                             |
 | `cmake-hash`         | **Optional.** The expected SHA512 hash (hex) of the CMake archive for the target platform/architecture. Required for download verification and enabling Terrapin usage for CMake. | `false`  | -                                             |
 | `add-cmake-to-path`  | If `'true'`, adds the `bin` directory of the installed CMake version to the `PATH` environment variable.                                                                          | `false`  | `'true'`                                      |
+| `ninja-version`      | The Ninja version to download.                                                                                                                                                    | `false`  | -                                             |
+| `ninja-hash`         | **Optional.** The expected SHA512 hash (hex) of the Ninja archive for the target platform/architecture. Required for download verification and enabling Terrapin usage for Ninja. | `false`  | -                                             |
 | `vcpkg-version`      | The vcpkg tag version to download (e.g., `2023.10.19`). Find tags on the [vcpkg releases page](https://github.com/microsoft/vcpkg/tags).                                          |  `true`  | -                                             |
 | `vcpkg-hash`         | The expected SHA512 hash (hex) for the specified vcpkg tag's `.zip` archive. Required for download verification and enabling Terrapin usage for vcpkg.                            |  `true`  | -                                             |
 | `terrapin-tool-path` | Path to the `TerrapinRetrievalTool.exe` executable. Used for both CMake and vcpkg downloads on Windows if applicable (hashes provided, Terrapin not disabled).                    | `false`  | `C:/local/Terrapin/TerrapinRetrievalTool.exe` |
@@ -55,6 +57,7 @@ Additionally, if `add-cmake-to-path` is `'true'` (the default), the action adds 
 
 - The action utilizes `@actions/tool-cache` for caching both CMake and vcpkg installations.
 - The **CMake** cache key is based on the tool name (`cmake`), the resolved `cmake-version`, and the runner's platform/architecture (e.g., `linux-x86_64`).
+- The **Ninja** cache key is based on the tool name (`ninja`), the resolved `ninja-version`, and the runner's platform/architecture (e.g., `linux-x86_64`).
 - The **vcpkg** cache key is based on the tool name (`vcpkg`) and the `vcpkg-version`.
 - It caches the **bootstrapped** version of vcpkg, meaning the `vcpkg` executable should be present and ready to use within the cached directory.
 - Subsequent workflow runs hitting the cache will be significantly faster as they skip download, verification, extraction, and bootstrapping (for vcpkg).
