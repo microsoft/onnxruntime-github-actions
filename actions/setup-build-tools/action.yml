@@ -26,6 +26,14 @@ inputs:
     required: false
     default: 'true'
 
+  ninja-version:
+    description: 'The Ninja version to download (e.g., 1.11.1).'
+    required: true
+  ninja-hash:
+    description: SHA512 of archive. Required if ninja-version is provided.
+    default: ''
+    required: false
+
   # --- vcpkg Inputs ---
   vcpkg-version:
     description: 'The vcpkg tag version to download (e.g., 2023.10.19)'
