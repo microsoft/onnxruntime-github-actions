@@ -78,6 +78,7 @@ async function run() {
         const pythonPathPrefix = core.getInput('python_path_prefix'); // Get prefix input
         const allowOpset = core.getInput('allow_released_opset_only');
         const nightlyBuild = core.getInput('nightly_build');
+        const useVcpkg = core.getInput('use_vcpkg');
 
         // --- Validate Mode ---
         let buildPyArg;
@@ -156,8 +157,7 @@ async function run() {
             '--skip_submodule_sync',
             '--build_shared_lib',
             '--parallel',
-            '--use_vcpkg',
-            '--use_vcpkg_ms_internal_asset_cache',
+            ...(useVcpkg ? ['--use_vcpkg', '--use_vcpkg_ms_internal_asset_cache'] : []),
             ...(enableOnnxTestsFlag ? ['--enable_onnx_tests'] : []),
             ...epFlags,
             extraBuildFlags,
