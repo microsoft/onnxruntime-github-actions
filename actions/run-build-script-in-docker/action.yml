@@ -37,7 +37,7 @@ inputs:
   use_vcpkg:
     description: 'Use vcpkg tool'
     required: false
-    default: '1'
+    default: 'true'
 
 runs:
   using: 'node24'

@@ -78,7 +78,7 @@ async function run() {
         const pythonPathPrefix = core.getInput('python_path_prefix'); // Get prefix input
         const allowOpset = core.getInput('allow_released_opset_only');
         const nightlyBuild = core.getInput('nightly_build');
-        const useVcpkg = core.getInput('use_vcpkg');
+        const useVcpkg = core.getBooleanInput('use_vcpkg');
 
         // --- Validate Mode ---
         let buildPyArg;
