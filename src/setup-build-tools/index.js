@@ -377,8 +377,8 @@ async function run__vcpkg(terrapinTool, version, hash) {
 // --- Main Orchestration Function ---
 async function run() {
   try {
-    const ccacheVersion = core.getInput('ccache-version', { required: true });
-    const ccacheHash = core.getInput('ccache-hash', { required: true });
+    const ccacheVersion = core.getInput('ccache-version');
+    const ccacheHash = core.getInput('ccache-hash');
     const addCCacheToPath = core.getBooleanInput('add-ccache-to-path');
 
     const cmakeVersion = core.getInput('cmake-version', { required: true });
@@ -395,7 +395,12 @@ async function run() {
     const allowTerrapin = !core.getBooleanInput('disable-terrapin'); // keep logic positive to minimise double negatives
 
     const terrapinTool = terrapinAvailable(terrapinPath, allowTerrapin) ? terrapinPath : null;
-    await core.group(`Setup ccache`, async () => { await run__ccache(terrapinTool, ccacheVersion, ccacheHash, addCCacheToPath) });
+    if (ccacheVersion !== '' || ccacheHash !== '') {
+      if (ccacheVersion === '' || ccacheHash === '') {
+        throw new Error('Either both `ccache-version` and `ccache-hash` must be provided, or neither must be provided.');
+      }
+      await core.group(`Setup ccache`, async () => { await run__ccache(terrapinTool, ccacheVersion, ccacheHash, addCCacheToPath) });
+    }
     await core.group(`Setup cmake`, async () => { await run__cmake(terrapinTool, cmakeVersion, cmakeHash, addCMakeToPath) });
     if (ninjaVersion !== '' || ninjaHash !== '') {
       if (ninjaVersion === '' || ninjaHash === '') {
