@@ -48,23 +48,18 @@ Builds a full Debug ONNX Runtime wheel and uses it to generate ORT-format models
 and reduced-build configuration files for minimal-build tests. See
 [`actions/build-and-prep-ort-files/action.yml`](./actions/build-and-prep-ort-files/action.yml).
 
-The boolean input `enable-training-ops` defaults to `'true'`, preserving training
-operators for existing consumers. Set it to `'false'` to omit
-`--enable_training_ops` from the full wheel build. Model conversion, test-data
-paths, and all other build flags are unchanged.
+The full wheel build does not enable training operators. Model conversion,
+test-data paths, and all other build flags are unchanged.
 
 When using a pre-release commit containing generated build output (see
-[Integration Test](#integration-test)), callers can opt out with:
+[Integration Test](#integration-test)), invoke the action with:
 
 ```yaml
 - name: Build full ORT and prepare minimal-build test files
   uses: microsoft/onnxruntime-github-actions/build/build-and-prep-ort-files@<full_commit_sha_from_actions_repo>
-  with:
-    enable-training-ops: 'false'
 ```
 
-For a downloaded release bundle, use its local `build-and-prep-ort-files` path
-with the same input.
+For a downloaded release bundle, use its local `build-and-prep-ort-files` path.
 
 Because the compiled action code (in the `build/` directory) is not present on the `main` branch or directly associated with version tags in the repository filesystem, you **cannot** use the actions directly like this:
 

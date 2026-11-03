@@ -1,10 +1,5 @@
 name: 'Build Full ORT and Prepare Test Files'
 description: 'Installs requirements, builds full ORT wheel, installs it, and generates ORT format models and config files for minimal build tests in $RUNNER_TEMP.'
-inputs:
-  enable-training-ops:
-    description: 'Include training operators in the full Debug wheel build used to prepare minimal-build test data.'
-    required: false
-    default: 'true'
 runs:
   using: 'node24'
   main: 'dist/index.js'

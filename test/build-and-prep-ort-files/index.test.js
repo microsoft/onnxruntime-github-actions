@@ -33,14 +33,9 @@ describe('build-and-prep-ort-files', () => {
   const originalEnv = process.env;
   const workspace = path.resolve('workspace');
   const buildDir = path.resolve('runner-temp');
-  const metadata = jest
-    .requireActual('fs')
-    .readFileSync(path.join(__dirname, '../../actions/build-and-prep-ort-files/action.yml'), 'utf8');
-  const metadataDefault = metadata.match(/default: '([^']+)'/)[1];
 
   beforeEach(() => {
     process.env = { ...originalEnv, GITHUB_WORKSPACE: workspace, RUNNER_TEMP: buildDir };
-    delete process.env['INPUT_ENABLE-TRAINING-OPS'];
     exec.getExecOutput.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
     fs.readFile.mockResolvedValue('standalone ops');
     fs.readdir.mockResolvedValue(['custom.onnx', 'ignored.txt']);
@@ -50,16 +45,7 @@ describe('build-and-prep-ort-files', () => {
     process.env = originalEnv;
   });
 
-  it.each([
-    ['explicit false', 'false', false],
-    ['explicit true', 'true', true],
-    ['omitted input', undefined, true],
-    ['metadata default', metadataDefault, true],
-  ])('%s preserves preparation commands and selects training operators', async (_name, input, enabled) => {
-    if (input !== undefined) {
-      process.env['INPUT_ENABLE-TRAINING-OPS'] = input;
-    }
-
+  it('builds without training operators and preserves all other preparation commands and paths', async () => {
     await main();
 
     const testDataDir = path.join(buildDir, 'minimal_build_test_data');
@@ -106,7 +92,6 @@ describe('build-and-prep-ort-files', () => {
           '--use_binskim_compliant_compile_flags',
           '--build_wheel',
           '--skip_tests',
-          ...(enabled ? ['--enable_training_ops'] : []),
           '--use_nnapi',
           '--use_coreml',
         ],
@@ -142,17 +127,5 @@ describe('build-and-prep-ort-files', () => {
     );
     expect(fs.rm).toHaveBeenCalledWith(customOpsDir, { recursive: true, force: true });
     expect(core.setFailed).not.toHaveBeenCalled();
-  });
-
-  it('rejects an invalid boolean before running preparation commands', async () => {
-    process.env['INPUT_ENABLE-TRAINING-OPS'] = 'invalid';
-
-    await main();
-
-    expect(core.setFailed).toHaveBeenCalledWith(
-      expect.stringContaining('Input does not meet YAML 1.2 "Core Schema" specification: enable-training-ops')
-    );
-    expect(exec.getExecOutput).not.toHaveBeenCalled();
-    expect(fs.mkdir).not.toHaveBeenCalled();
   });
 });
