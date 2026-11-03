@@ -67,6 +67,10 @@ async function main() {
     core.info(`Wheel Directory: ${wheelDir}`);
 
     try { // Wrap main logic in try/catch for core.setFailed
+        const enableTrainingOps = core.getInput('enable-training-ops') === ''
+            ? true
+            : core.getBooleanInput('enable-training-ops');
+
         // Ensure necessary directories exist
         await fs.mkdir(testDataDir, { recursive: true });
         await fs.mkdir(debugOutputDir, { recursive: true });
@@ -104,7 +108,7 @@ async function main() {
             '--use_binskim_compliant_compile_flags',
             '--build_wheel',
             '--skip_tests',
-            '--enable_training_ops',
+            ...(enableTrainingOps ? ['--enable_training_ops'] : []),
             '--use_nnapi',
             '--use_coreml'
         ];
@@ -229,4 +233,8 @@ async function main() {
 }
 
 // Execute the main function
-main();
+if (require.main === module) {
+    main();
+}
+
+module.exports = { main };
