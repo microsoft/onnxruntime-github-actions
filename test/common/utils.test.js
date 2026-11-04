@@ -375,10 +375,10 @@ describe('Common Utils', () => {
       Object.defineProperty(process, 'arch', { value: 'x64' });
       expect(utils.getArchIdentifier()).toBe('x86_64');
     });
-    it('should return "aarch64" for windows arm64', () => {
+    it('should return "arm64" for windows arm64', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' });
       Object.defineProperty(process, 'arch', { value: 'arm64' });
-      expect(utils.getArchIdentifier()).toBe('aarch64');
+      expect(utils.getArchIdentifier()).toBe('arm64');
     });
     it('should return "universal" for darwin (any arch)', () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
