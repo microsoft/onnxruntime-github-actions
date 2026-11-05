@@ -1,4 +1,4 @@
-const { getCMakeBinDir } = require('../../src/setup-build-tools/index');
+const { getCMakeBinDir, getCcacheArchIdentifier } = require('../../src/setup-build-tools/index');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -23,5 +23,21 @@ describe('getCMakeBinDir', () => {
     const expectedPath = path.join(cmakePath, 'bin');
     fs.existsSync.mockReturnValue(false);
     expect(getCMakeBinDir(cmakePath, 'macos')).toBe(expectedPath);
+  });
+});
+
+describe('getCcacheArchIdentifier', () => {
+  it('should return "aarch64" for Windows ARM64 ccache archives', () => {
+    const originalPlatform = process.platform;
+    const originalArch = process.arch;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    Object.defineProperty(process, 'arch', { value: 'arm64', configurable: true });
+
+    try {
+      expect(getCcacheArchIdentifier()).toBe('aarch64');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      Object.defineProperty(process, 'arch', { value: originalArch, configurable: true });
+    }
   });
 });
