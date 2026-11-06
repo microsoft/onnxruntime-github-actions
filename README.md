@@ -42,10 +42,10 @@ This project uses `esbuild` to compile the JavaScript source code for each actio
 
 ## Usage (for Consumers)
 
-Reference an action directly using a published release tag. Replace `vX.Y.Z` with the desired version from the [Releases page](https://github.com/microsoft/onnxruntime-github-actions/releases):
+Reference an action directly, pinned to the full commit SHA of a published release. Choose a version from the [Releases page](https://github.com/microsoft/onnxruntime-github-actions/releases) and use the release tag's commit. For example:
 
 ```yaml
-uses: microsoft/onnxruntime-github-actions/run-build-script-in-docker@vX.Y.Z
+uses: microsoft/onnxruntime-github-actions/run-build-script-in-docker@f752b887c8e6e687f7fc0bca48918da42d1146a8 # v0.0.15
 ```
 
 Example Workflow Snippet:
@@ -60,10 +60,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Consumer Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Run Build Script in Docker
-        uses: microsoft/onnxruntime-github-actions/run-build-script-in-docker@vX.Y.Z
+        uses: microsoft/onnxruntime-github-actions/run-build-script-in-docker@f752b887c8e6e687f7fc0bca48918da42d1146a8 # v0.0.15
         with:
           # Provide inputs for the action
           docker_image: 'your-build-image:latest'
@@ -91,20 +91,18 @@ Before making a release, please use the following steps to do an integration tes
     git commit -m "feat: Update action XYZ (including build output for testing)"
     ```
 5.  **Push Branch:** Push your development branch to the origin: `git push origin dev/feature-xyz`.
-6.  **Get Commit SHA (Recommended):** After pushing, get the full commit SHA of your latest commit on the development branch (e.g., using `git rev-parse HEAD` or from the GitHub UI).
+6.  **Get Commit SHA:** After pushing, get the full commit SHA of your latest commit on the development branch (e.g., using `git rev-parse HEAD` or from the GitHub UI).
 
 **Steps that should be done in the main ONNX Runtime repo**
 
-1.  Create a dev branch
-2.  Modify the `uses:` line for the action you want to test to point to the specific branch or commit SHA in _this_ actions repository:
+1.  Create a development branch in the `onnxruntime` repo.
+2.  Modify the `uses:` line for the action you want to test:
+    - Pin it to the full commit SHA from the development branch in _this_ repository.
+    - Update the action path to be under the `build/` directory that was committed in the development branch in _this_ repository.
 
     ```yaml
     steps:
       - name: Run Pre-Release Build Script in Docker
-        # Option 1: Using the branch name (updates automatically if branch changes)
-        # uses: microsoft/onnxruntime-github-actions/build/run-build-script-in-docker@dev/feature-xyz
-
-        # Option 2: Using the specific commit SHA (safer - pins to exact version)
         uses: microsoft/onnxruntime-github-actions/build/run-build-script-in-docker@<full_commit_sha_from_actions_repo>
         with:
           # ... inputs ...
