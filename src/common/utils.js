@@ -206,7 +206,7 @@ function getArchIdentifier() {
 
   if (platform === 'darwin') return 'universal'; // Assume universal for macOS for simplicity
   if (arch === 'x64') return 'x86_64';
-  if (arch === 'arm64') return 'aarch64';
+  if (arch === 'arm64') return platform === 'win32' ? 'arm64' : 'aarch64';
 
   throw new Error(`Unsupported architecture: ${arch} on platform: ${platform}`);
 }

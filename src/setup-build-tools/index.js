@@ -35,6 +35,11 @@ function normalizeVcpkgVersion(version) {
   return version;
 }
 
+function getCcacheArchIdentifier() {
+  if (process.platform === 'win32' && process.arch === 'arm64') return 'aarch64';
+  return getArchIdentifier();
+}
+
 // --- vcpkg Specific Helpers ---
 
 function terrapinAvailable(terrapinPath, allowTerrapin) {
@@ -206,7 +211,7 @@ async function run__ccache(terrapinTool, version, hash, addToPath) {
   const platformSuffix =
     platform == 'linux' ? `linux-${getArchIdentifier()}-musl-static.tar.xz` :
       platform === 'macos' ? 'darwin.tar.gz' :
-        platform === 'windows' ? `windows-${getArchIdentifier()}.zip` :
+        platform === 'windows' ? `windows-${getCcacheArchIdentifier()}.zip` :
           new Error(`Unsupported platform for CCache download: ${platform}`);
 
   const ccacheDir = await cacheTool(
@@ -422,4 +427,4 @@ if (require.main === module) {
 
 // --- Exports ---
 // Export the main run function and utility helpers
-module.exports = { run, getCMakeBinDir, normalizeVcpkgVersion };
+module.exports = { run, getCMakeBinDir, normalizeVcpkgVersion, getCcacheArchIdentifier };
