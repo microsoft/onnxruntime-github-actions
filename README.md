@@ -2,7 +2,7 @@
 
 This repository contains reusable GitHub Actions designed primarily for CI/CD pipelines within the ONNX Runtime organization's projects. It consolidates multiple actions into a single Node.js project to simplify maintenance and avoid checking compiled JavaScript code into consuming repositories.
 
-This project uses `esbuild` to compile the JavaScript source code for each action. The compiled output is **not** committed to the `main` branch. Instead, releases are created based on Git tags, and the compiled actions are attached as downloadable assets to GitHub Releases.
+This project uses `esbuild` to compile the JavaScript source code for each action. The compiled output is **not** committed to the `main` branch. Instead, the release workflow builds the actions and commits the compiled output before creating a GitHub Release.
 
 ## Project Structure
 
@@ -42,19 +42,11 @@ This project uses `esbuild` to compile the JavaScript source code for each actio
 
 ## Usage (for Consumers)
 
-Because the compiled action code (in the `build/` directory) is not present on the `main` branch or directly associated with version tags in the repository filesystem, you **cannot** use the actions directly like this:
+Reference an action directly, pinned to the full commit SHA of a published release. Choose a version from the [Releases page](https://github.com/microsoft/onnxruntime-github-actions/releases) and use the release tag's commit. For example:
 
 ```yaml
-# --- THIS WILL NOT WORK ---
-# uses: microsoft/onnxruntime-github-actions/build/run-build-script-in-docker@vX.Y.Z
+uses: microsoft/onnxruntime-github-actions/run-build-script-in-docker@f752b887c8e6e687f7fc0bca48918da42d1146a8 # v0.0.15
 ```
-
-Instead, you must download the compiled action bundle from the corresponding GitHub Release asset and reference it locally:
-
-1. Find the Release: Go to the Releases page of this repository.
-2. Identify Version: Find the release tag (e.g., v0.0.2) corresponding to the version you want to use.
-3. Download Asset: Download the .zip asset attached to that release (e.g., onnxruntime-actions-v0.0.2.zip).
-4. Use in Workflow: Add steps to your workflow to download and unzip the asset, then reference the action using its local path.
 
 Example Workflow Snippet:
 
@@ -68,32 +60,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Consumer Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      # 1. Download the specific version of the action bundle
-      - name: Download ORT Actions Asset (v0.0.2) # <-- Adjust version as needed
-        uses: dsaltares/fetch-gh-release-asset@1.1.0 # Action to download assets
-        with:
-          repo: 'microsoft/onnxruntime-github-actions' # The repo containing the actions
-          version: 'tags/v0.0.2' # The specific tag/version to use
-          file: 'onnxruntime-actions-v0.0.2.zip' # The asset filename (matches release workflow output)
-          target: 'onnxruntime-actions.zip' # Local filename to save as
-        env:
-          # Use default token for public repos, provide PAT for private if necessary
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 2. Unzip the downloaded actions
-      - name: Unzip ORT Actions
-        run: |
-          mkdir -p ./.github/_downloaded_actions # Create a directory to hold them
-          unzip onnxruntime-actions.zip -d ./.github/_downloaded_actions
-          echo "Unzipped contents:"
-          ls -lR ./.github/_downloaded_actions # Verify structure
-
-      # 3. Use the action via its local path
       - name: Run Build Script in Docker
-        # Reference the action.yml inside the unzipped structure
-        uses: ./.github/_downloaded_actions/run-build-script-in-docker
+        uses: microsoft/onnxruntime-github-actions/run-build-script-in-docker@f752b887c8e6e687f7fc0bca48918da42d1146a8 # v0.0.15
         with:
           # Provide inputs for the action
           docker_image: 'your-build-image:latest'
@@ -103,9 +73,9 @@ jobs:
           # ... other inputs ...
 ```
 
-# Integration Test
+## Integration Test
 
-Before making a release, please use the following steps to do an integration test with ONNX Runtime's main repo. While the standard release process involves tags and downloadable assets (as described in the "Usage" section), we need to test changes in a consuming repository _before_ an official release is tagged, using the direct `uses:` syntax. This can be achieved by temporarily committing the compiled `build/` directory to a specific branch or commit.
+Before making a release, please use the following steps to do an integration test with ONNX Runtime's main repo. To test changes in a consuming repository _before_ an official release is tagged, temporarily commit the compiled `build/` directory to a development branch. Unlike published release tags, these test commits keep the actions under `build/`, so their `uses:` paths include that directory.
 
 **Note:** This method involves committing build artifacts to the Git repository, which is generally discouraged for the `main` branch as it increases repository size and complicates diffs. Use this approach primarily on short-lived development/feature branches for integration testing purposes.
 
@@ -121,26 +91,45 @@ Before making a release, please use the following steps to do an integration tes
     git commit -m "feat: Update action XYZ (including build output for testing)"
     ```
 5.  **Push Branch:** Push your development branch to the origin: `git push origin dev/feature-xyz`.
-6.  **Get Commit SHA (Recommended):** After pushing, get the full commit SHA of your latest commit on the development branch (e.g., using `git rev-parse HEAD` or from the GitHub UI).
+6.  **Get Commit SHA:** After pushing, get the full commit SHA of your latest commit on the development branch (e.g., using `git rev-parse HEAD` or from the GitHub UI).
 
 **Steps that should be done in the main ONNX Runtime repo**
 
-1.  Create a dev branch
-2.  Modify the `uses:` line for the action you want to test to point to the specific branch or commit SHA in _this_ actions repository:
+1.  Create a development branch in the `onnxruntime` repo.
+2.  Modify the `uses:` line for the action you want to test:
+    - Pin it to the full commit SHA from the development branch in _this_ repository.
+    - Update the action path to be under the `build/` directory that was committed in the development branch in _this_ repository.
 
     ```yaml
     steps:
       - name: Run Pre-Release Build Script in Docker
-        # Option 1: Using the branch name (updates automatically if branch changes)
-        # uses: microsoft/onnxruntime-github-actions/build/run-build-script-in-docker@dev/feature-xyz
-
-        # Option 2: Using the specific commit SHA (safer - pins to exact version)
         uses: microsoft/onnxruntime-github-actions/build/run-build-script-in-docker@<full_commit_sha_from_actions_repo>
         with:
           # ... inputs ...
     ```
 
     _(Replace `<full_commit_sha_from_actions_repo>` with the actual SHA obtained in step 6 above)._
+
+## Creating a Release
+
+Releases are automated by [`.github/workflows/release.yml`](./.github/workflows/release.yml), which runs when a tag matching `v*.*.*` is pushed. You need permission to push tags, and repository rules must allow the workflow to force-update the release tag.
+
+1. Complete the [integration test](#integration-test), merge the intended source changes into `main` without the temporary build artifacts, and ensure CI passes.
+2. Choose a new version tag for the release (it should be of the form `vX.Y.Z`, where `X`, `Y`, and `Z` are numbers). Fetch the latest `main`, tag the desired source commit, and push the tag:
+
+   ```bash
+   git fetch origin
+   git tag vX.Y.Z origin/main
+   git push origin vX.Y.Z
+   ```
+
+   Replace `vX.Y.Z` with the chosen version. To release a specific source commit instead of the latest `main`, replace `origin/main` with its full SHA. The workflow uses the tag name as the release version.
+
+3. Wait for the release workflow to succeed on the [Actions page](https://github.com/microsoft/onnxruntime-github-actions/actions/workflows/release.yml), then confirm the release appears on the [Releases page](https://github.com/microsoft/onnxruntime-github-actions/releases).
+
+The workflow installs dependencies with `npm ci`, runs `npm run build`, copies the compiled actions and essential documentation into a separate artifact history, force-updates the remote tag to the artifact commit, and creates a GitHub Release with generated notes.
+
+**Important:** After the workflow succeeds, the remote release tag points to the artifact commit, not the source commit you originally tagged. Your local tag still points to the source commit. Do not push it again or use it as the released artifact SHA. The artifact commit message records the source commit SHA.
 
 ## Contributing
 
