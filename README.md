@@ -42,6 +42,25 @@ This project uses `esbuild` to compile the JavaScript source code for each actio
 
 ## Usage (for Consumers)
 
+### `build-and-prep-ort-files`
+
+Builds a full Debug ONNX Runtime wheel and uses it to generate ORT-format models
+and reduced-build configuration files for minimal-build tests. See
+[`actions/build-and-prep-ort-files/action.yml`](./actions/build-and-prep-ort-files/action.yml).
+
+The full wheel build does not enable training operators. Model conversion,
+test-data paths, and all other build flags are unchanged.
+
+When using a pre-release commit containing generated build output (see
+[Integration Test](#integration-test)), invoke the action with:
+
+```yaml
+- name: Build full ORT and prepare minimal-build test files
+  uses: microsoft/onnxruntime-github-actions/build/build-and-prep-ort-files@<full_commit_sha_from_actions_repo>
+```
+
+For a downloaded release bundle, use its local `build-and-prep-ort-files` path.
+
 Because the compiled action code (in the `build/` directory) is not present on the `main` branch or directly associated with version tags in the repository filesystem, you **cannot** use the actions directly like this:
 
 ```yaml
